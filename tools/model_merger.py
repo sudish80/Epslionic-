@@ -10,7 +10,7 @@ from pathlib import Path
 
 import torch
 
-logger = logging.getLogger("openclaw.tool.model_merger")
+logger = logging.getLogger("epsionic.tool.model_merger")
 
 
 class ModelMergeError(Exception):

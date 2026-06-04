@@ -8,8 +8,8 @@ class TestAutoFixer:
     """Error auto-fix patterns and resolution."""
 
     def test_cuda_oom_fix(self):
-        from openclaw_colab_agent.tools.auto_fixer import AutoFixerTool
-        from openclaw_colab_agent.core.memory import MemoryStore
+        from epsionic.tools.auto_fixer import AutoFixerTool
+        from epsionic.core.memory import MemoryStore
         import tempfile
         memory = MemoryStore(tempfile.mkdtemp())
         fx = AutoFixerTool(memory)
@@ -19,8 +19,8 @@ class TestAutoFixer:
         assert result["desc"] is not None
 
     def test_import_error_fix(self):
-        from openclaw_colab_agent.tools.auto_fixer import AutoFixerTool
-        from openclaw_colab_agent.core.memory import MemoryStore
+        from epsionic.tools.auto_fixer import AutoFixerTool
+        from epsionic.core.memory import MemoryStore
         import tempfile
         memory = MemoryStore(tempfile.mkdtemp())
         fx = AutoFixerTool(memory)
@@ -28,8 +28,8 @@ class TestAutoFixer:
         assert result["fixed"] is True
 
     def test_nan_loss_fix(self):
-        from openclaw_colab_agent.tools.auto_fixer import AutoFixerTool
-        from openclaw_colab_agent.core.memory import MemoryStore
+        from epsionic.tools.auto_fixer import AutoFixerTool
+        from epsionic.core.memory import MemoryStore
         import tempfile
         memory = MemoryStore(tempfile.mkdtemp())
         fx = AutoFixerTool(memory)
@@ -38,8 +38,8 @@ class TestAutoFixer:
         assert result["conf"] >= 0.7
 
     def test_unknown_error_returns_not_fixed(self):
-        from openclaw_colab_agent.tools.auto_fixer import AutoFixerTool
-        from openclaw_colab_agent.core.memory import MemoryStore
+        from epsionic.tools.auto_fixer import AutoFixerTool
+        from epsionic.core.memory import MemoryStore
         import tempfile
         memory = MemoryStore(tempfile.mkdtemp())
         fx = AutoFixerTool(memory)
@@ -47,8 +47,8 @@ class TestAutoFixer:
         assert result["fixed"] is False
 
     def test_fix_logs_to_memory(self):
-        from openclaw_colab_agent.tools.auto_fixer import AutoFixerTool
-        from openclaw_colab_agent.core.memory import MemoryStore
+        from epsionic.tools.auto_fixer import AutoFixerTool
+        from epsionic.core.memory import MemoryStore
         import tempfile
         memory = MemoryStore(tempfile.mkdtemp())
         fx = AutoFixerTool(memory)
@@ -57,8 +57,8 @@ class TestAutoFixer:
         assert len(unfixed) == 0  # fixed errors should not be unfixed
 
     def test_dtype_mismatch_fix(self):
-        from openclaw_colab_agent.tools.auto_fixer import AutoFixerTool
-        from openclaw_colab_agent.core.memory import MemoryStore
+        from epsionic.tools.auto_fixer import AutoFixerTool
+        from epsionic.core.memory import MemoryStore
         import tempfile
         memory = MemoryStore(tempfile.mkdtemp())
         fx = AutoFixerTool(memory)
@@ -70,8 +70,8 @@ class TestDatasetDiscovery:
     """Dataset discovery and loading."""
 
     def test_search_returns_list(self):
-        from openclaw_colab_agent.tools.dataset_discovery import DatasetDiscoveryTool
-        from openclaw_colab_agent.core.memory import MemoryStore
+        from epsionic.tools.dataset_discovery import DatasetDiscoveryTool
+        from epsionic.core.memory import MemoryStore
         from pathlib import Path
         import tempfile
         memory = MemoryStore(tempfile.mkdtemp())
@@ -80,8 +80,8 @@ class TestDatasetDiscovery:
         assert isinstance(results, list)
 
     def test_mock_fallback(self, monkeypatch):
-        from openclaw_colab_agent.tools.dataset_discovery import DatasetDiscoveryTool
-        from openclaw_colab_agent.core.memory import MemoryStore
+        from epsionic.tools.dataset_discovery import DatasetDiscoveryTool
+        from epsionic.core.memory import MemoryStore
         from pathlib import Path
         import tempfile
         memory = MemoryStore(tempfile.mkdtemp())

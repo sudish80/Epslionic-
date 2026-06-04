@@ -1,5 +1,5 @@
 """
-Memory Store - OpenClaw-inspired file-based memory.
+Memory Store - Epslionic-inspired file-based memory.
 Stores experiment data, training logs, errors, and agent state as JSON files.
 """
 
@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from collections import OrderedDict
 
-logger = logging.getLogger("openclaw.memory")
+logger = logging.getLogger("epsionic.memory")
 
 
 class MemoryStore:
@@ -55,7 +55,7 @@ class MemoryStore:
     def base(self):
         return self.memory_dir
 
-    # --- Agent State (OpenClaw SOUL.md / AGENTS.md pattern) ---
+    # --- Agent State (Epslionic SOUL.md / AGENTS.md pattern) ---
     def write_agent_state(self, key: str, data: Any):
         path = self._agent_dir / f"{key}.json"
         path.write_text(json.dumps(data, indent=2, default=str))

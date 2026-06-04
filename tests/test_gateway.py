@@ -28,7 +28,7 @@ class TestGateway:
         assert "Gateway" in md or "Status" in md or "status" in md.lower()
 
     def test_run_domain_pipeline(self, gateway_with_tools):
-        from openclaw_colab_agent.core.domain import DOMAINS
+        from epsionic.core.domain import DOMAINS
         result = gateway_with_tools.run_domain("math", DOMAINS["math"])
         assert "objective" in result
         assert "domain" in result
@@ -37,7 +37,7 @@ class TestGateway:
         assert len(result["steps"]) >= 4
 
     def test_run_domain_creates_experiment(self, gateway_with_tools):
-        from openclaw_colab_agent.core.domain import DOMAINS
+        from epsionic.core.domain import DOMAINS
         before = len(gateway_with_tools.memory.list_experiments())
         gateway_with_tools.run_domain("math", DOMAINS["math"])
         after = len(gateway_with_tools.memory.list_experiments())

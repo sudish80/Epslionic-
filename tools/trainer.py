@@ -1,6 +1,6 @@
 """
 Trainer Tool - LLM fine-tuning using Unsloth/Transformers/QLoRA.
-OpenClaw skill: encapsulates training as a reusable tool.
+Epslionic skill: encapsulates training as a reusable tool.
 Designed for Google Colab with T4/V100/A100 GPUs.
 """
 
@@ -11,7 +11,7 @@ import os
 from typing import Optional, Dict, Any, List, Callable
 from pathlib import Path
 
-logger = logging.getLogger("openclaw.tool.trainer")
+logger = logging.getLogger("epsionic.tool.trainer")
 
 
 class TrainerTool:
@@ -373,7 +373,7 @@ class TrainerTool:
         try:
             from huggingface_hub import HfApi, create_repo
             api = HfApi(token=token)
-            repo_id = repo_name or f"openclaw-{experiment_id}"
+            repo_id = repo_name or f"epsionic-{experiment_id}"
             create_repo(repo_id, exist_ok=True, token=token)
             api.upload_folder(folder_path=model_path, repo_id=repo_id, token=token)
             logger.info(f"Model pushed to HF Hub: {repo_id}")

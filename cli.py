@@ -30,7 +30,7 @@ from .tools.quantizer import ModelQuantizer
 from .tools.cost_tracker import CostTracker
 from .tools.notifier import Notifier
 
-logger = logging.getLogger('openclaw.cli')
+logger = logging.getLogger('epsionic.cli')
 
 try:
     from rich.console import Console
@@ -179,7 +179,7 @@ def build_gateway(cfg: AgentConfig) -> Gateway:
         ))
     gw.register_tool('track_run', 'Initialize experiment tracking',
         lambda **kw: tracker_tool.init_run(
-            project=kw.get('project', 'openclaw'),
+            project=kw.get('project', 'epsionic'),
             name=kw.get('name', None),
             config=kw.get('config', {}),
         ))
@@ -201,7 +201,7 @@ def build_gateway(cfg: AgentConfig) -> Gateway:
         ))
     gw.register_tool('notify', 'Send notification',
         lambda **kw: notif_tool.send(
-            title=kw.get('title', 'OpenClaw'),
+            title=kw.get('title', 'Epslionic'),
             message=kw.get('message', ''),
             channels=kw.get('channels', ['log']),
             level=kw.get('level', 'info'),
@@ -288,7 +288,7 @@ def cmd_dashboard(gw: Gateway, share: bool = True, port: int = 7860) -> int:
         logger.info("Launching dashboard on port %d (share=%s)", port, share)
         dashboard_serve(gw.memory, gw, share=share, port=port)
     except ImportError:
-        logger.error("gradio not installed. Install with: pip install openclaw-colab-agent[dashboard]")
+        logger.error("gradio not installed. Install with: pip install epsionic[dashboard]")
         return 1
     except Exception as e:
         logger.error("Dashboard launch failed: %s", e)
@@ -307,7 +307,7 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
 
     from fastapi.middleware.cors import CORSMiddleware
 
-    app = FastAPI(title="OpenClaw-Colab Agent API", version=__version__,
+    app = FastAPI(title="Epslionic-Colab Agent API", version=__version__,
                   docs_url="/docs", redoc_url="/redoc")
 
     app.add_middleware(
@@ -449,7 +449,7 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
     def get_logs(lines: int = 50):
         import subprocess
         try:
-            result = subprocess.run(["tail", "-n", str(lines), str(Path(cfg.logs_dir) / "openclaw.log")],
+            result = subprocess.run(["tail", "-n", str(lines), str(Path(cfg.logs_dir) / "epsionic.log")],
                                     capture_output=True, text=True, timeout=5)
             return {"logs": result.stdout.split("\n")}
         except Exception:
@@ -473,8 +473,8 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
 
 def parse_args(argv: Optional[list] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        prog='openclaw',
-        description=f'OpenClaw-Colab Agent v{__version__} — Production LLM Training Agent',
+        prog='epsionic',
+        description=f'Epslionic-Colab Agent v{__version__} — Production LLM Training Agent',
     )
     p.add_argument('--version', '-v', action='version', version=f'%(prog)s {__version__}')
 
@@ -562,7 +562,7 @@ def main(argv: Optional[list] = None) -> int:
     if args.config:
         cfg = AgentConfig.from_file(args.config)
     else:
-        for p in ['openclaw.json', 'openclaw.yaml', 'openclaw.yml', 'config/openclaw.json', '~/.config/openclaw/config.json']:
+        for p in ['epsionic.json', 'epsionic.yaml', 'epsionic.yml', 'config/epsionic.json', '~/.config/epsionic/config.json']:
             resolved = Path(p).expanduser()
             if resolved.exists():
                 cfg = AgentConfig.from_file(str(resolved))
@@ -585,12 +585,12 @@ def main(argv: Optional[list] = None) -> int:
         import subprocess
         shell = os.environ.get("SHELL", "")
         if "zsh" in shell:
-            rc = subprocess.call(["openclaw", "--help"])
-            print("\nAdd to ~/.zshrc: eval \"$(_OPENCLAW_COMPLETE=zsh_source openclaw)\"")
+            rc = subprocess.call(["epsionic", "--help"])
+            print("\nAdd to ~/.zshrc: eval \"$(_EPSIONIC_COMPLETE=zsh_source epsionic)\"")
         elif "bash" in shell:
-            print("\nAdd to ~/.bashrc: eval \"$(_OPENCLAW_COMPLETE=bash_source openclaw)\"")
+            print("\nAdd to ~/.bashrc: eval \"$(_EPSIONIC_COMPLETE=bash_source epsionic)\"")
         else:
-            print("Tab-completion: add to your shell rc file or use `openclaw --help`")
+            print("Tab-completion: add to your shell rc file or use `epsionic --help`")
         return 0
 
     if args.no_emoji:

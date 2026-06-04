@@ -1,7 +1,7 @@
-site_name: OpenClaw-Colab Agent
+site_name: Epslionic-Colab Agent
 site_description: Production-grade autonomous LLM training agent
-site_url: https://openclaw.github.io/openclaw-colab-agent
-repo_url: https://github.com/openclaw/openclaw-colab-agent
+site_url: https://epsionic.github.io/epsionic
+repo_url: https://github.com/epsionic/epsionic
 edit_uri: blob/main/docs/
 
 theme:

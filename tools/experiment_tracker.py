@@ -7,7 +7,7 @@ import os
 from typing import Optional, Dict, Any
 from pathlib import Path
 
-logger = logging.getLogger("openclaw.tool.experiment_tracker")
+logger = logging.getLogger("epsionic.tool.experiment_tracker")
 
 
 class ExperimentTracker:

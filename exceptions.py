@@ -1,8 +1,8 @@
 __test__ = False
 
 
-class OpenClawError(Exception):
-    """Base exception for all OpenClaw agent errors."""
+class EpslionicError(Exception):
+    """Base exception for all Epslionic agent errors."""
     code = "OPENCLAW_ERROR"
 
     def __init__(self, message="", cause=None, context=None):
@@ -23,17 +23,17 @@ class OpenClawError(Exception):
         return " ".join(parts)
 
 
-class ConfigurationError(OpenClawError):
+class ConfigurationError(EpslionicError):
     """Invalid configuration or missing required settings."""
     code = "CONFIG_ERROR"
 
 
-class DomainError(OpenClawError):
+class DomainError(EpslionicError):
     """Domain selection or validation error."""
     code = "DOMAIN_ERROR"
 
 
-class EnvironmentError(OpenClawError):
+class EnvironmentError(EpslionicError):
     """Hardware or environment issue (no GPU, no internet, etc.)."""
     code = "ENV_ERROR"
 
@@ -43,47 +43,47 @@ class GPUError(EnvironmentError):
     code = "GPU_ERROR"
 
 
-class NetworkError(OpenClawError):
+class NetworkError(EpslionicError):
     """Network or API connectivity error."""
     code = "NETWORK_ERROR"
 
 
-class DatasetError(OpenClawError):
+class DatasetError(EpslionicError):
     """Dataset discovery, loading, or processing error."""
     code = "DATASET_ERROR"
 
 
-class TrainingError(OpenClawError):
+class TrainingError(EpslionicError):
     """Training execution error."""
     code = "TRAINING_ERROR"
 
 
-class ModelError(OpenClawError):
+class ModelError(EpslionicError):
     """Model loading, saving, or configuration error."""
     code = "MODEL_ERROR"
 
 
-class MemoryError(OpenClawError):
+class MemoryError(EpslionicError):
     """Memory store read/write error."""
     code = "MEMORY_ERROR"
 
 
-class ToolError(OpenClawError):
+class ToolError(EpslionicError):
     """Tool execution error."""
     code = "TOOL_ERROR"
 
 
-class HeartbeatError(OpenClawError):
+class HeartbeatError(EpslionicError):
     """Heartbeat monitoring error."""
     code = "HEARTBEAT_ERROR"
 
 
-class AuthenticationError(OpenClawError):
+class AuthenticationError(EpslionicError):
     """API key or token authentication error."""
     code = "AUTH_ERROR"
 
 
-class BrainError(OpenClawError):
+class BrainError(EpslionicError):
     """LLM Brain reasoning or query error."""
     code = "BRAIN_ERROR"
 
@@ -111,8 +111,8 @@ def error_code(exc: Exception) -> str:
     return "UNKNOWN_ERROR"
 
 
-def as_error(exc: BaseException) -> OpenClawError:
-    """Convert any exception to an OpenClawError with cause preserved."""
-    if isinstance(exc, OpenClawError):
+def as_error(exc: BaseException) -> EpslionicError:
+    """Convert any exception to an EpslionicError with cause preserved."""
+    if isinstance(exc, EpslionicError):
         return exc
-    return OpenClawError(message=str(exc), cause=exc)
+    return EpslionicError(message=str(exc), cause=exc)

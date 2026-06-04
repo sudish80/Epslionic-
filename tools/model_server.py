@@ -9,7 +9,7 @@ import time
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
-logger = logging.getLogger("openclaw.tool.model_server")
+logger = logging.getLogger("epsionic.tool.model_server")
 
 
 class ModelServer:
@@ -65,7 +65,7 @@ class ModelServer:
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        app = FastAPI(title=f"OpenClaw Model: {Path(model_path).name}")
+        app = FastAPI(title=f"Epslionic Model: {Path(model_path).name}")
 
         logger.info(f"Loading model from {model_path}...")
         model = AutoModelForCausalLM.from_pretrained(
@@ -82,7 +82,7 @@ class ModelServer:
             stream: bool = False
 
         class ChatResponse(BaseModel):
-            id: str = "chatcmpl-openclaw"
+            id: str = "chatcmpl-epsionic"
             object: str = "chat.completion"
             choices: List[dict] = None
             usage: dict = None

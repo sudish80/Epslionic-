@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2024-01-15
 
 ### Added
-- OpenClaw architecture: Gateway, Sessions (lane queues), Memory (file-based), Heartbeat (monitoring), Brain (LLM reasoning), Tools (skills)
+- Epslionic architecture: Gateway, Sessions (lane queues), Memory (file-based), Heartbeat (monitoring), Brain (LLM reasoning), Tools (skills)
 - Domain auto-selection with 9 preset domains (math, code, medical, legal, creative, science, finance, chat, general)
 - Autonomous mode with VRAM-based domain picking
 - Interactive domain interview mode

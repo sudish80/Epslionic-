@@ -1,4 +1,4 @@
-"""Dashboard: Gradio web UI for OpenClaw-Colab agent.
+"""Dashboard: Gradio web UI for Epslionic-Colab agent.
 Launches a multi-tab dashboard in Colab with shareable public URL.
 
 Tabs: Status | Experiments | Datasets | Errors | Heartbeat | Control
@@ -211,7 +211,7 @@ def run_action(memory, gateway, action: str, params: str) -> str:
 def make_ui(memory, gateway=None, queue=None):
     """Construct the Gradio Blocks UI."""
     with gr.Blocks(
-        title="OpenClaw-Colab Dashboard",
+        title="Epslionic-Colab Dashboard",
         theme=gr.themes.Soft(primary_hue="blue", secondary_hue="indigo"),
         css="""
         .refresh-btn { min-width: 140px; }
@@ -219,7 +219,7 @@ def make_ui(memory, gateway=None, queue=None):
         """,
     ) as ui:
         gr.Markdown(
-            "# \U0001f9e0 OpenClaw-Colab Dashboard",
+            "# \U0001f9e0 Epslionic-Colab Dashboard",
         )
         gr.Markdown(
             "Overview of training experiments, datasets, errors, and heartbeat. "
@@ -305,7 +305,7 @@ def make_ui(memory, gateway=None, queue=None):
 
         gr.Markdown(
             "---\n"
-            f"OpenClaw-Colab Dashboard | "
+            f"Epslionic-Colab Dashboard | "
             f"Updated: {datetime.now():%H:%M:%S}"
         )
 
@@ -319,7 +319,7 @@ def serve(memory, gateway=None, share=True, port=7860, queue=None):
         return None
     ui = make_ui(memory, gateway, queue)
     print(f"\n  {'='*50}")
-    print(f"  OpenClaw-Colab Dashboard")
+    print(f"  Epslionic-Colab Dashboard")
     print(f"  {'='*50}")
     print(f"  Launching dashboard...")
     ui.queue(default_concurrency_limit=5)

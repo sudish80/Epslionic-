@@ -3,7 +3,7 @@
 import os
 import logging
 
-logger = logging.getLogger("openclaw.colab")
+logger = logging.getLogger("epsionic.colab")
 
 
 def mount_drive():
@@ -35,7 +35,7 @@ def save_checkpoint(local_path: str, drive_path: str = None):
     import shutil
     from pathlib import Path
     if drive_path is None:
-        drive_path = f"/content/drive/MyDrive/openclaw_checkpoints/{Path(local_path).name}"
+        drive_path = f"/content/drive/MyDrive/epsionic_checkpoints/{Path(local_path).name}"
     try:
         Path(drive_path).parent.mkdir(parents=True, exist_ok=True)
         if Path(local_path).is_dir():

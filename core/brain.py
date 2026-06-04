@@ -1,7 +1,7 @@
 """
 LLM Brain - The reasoning engine of the agent.
 Uses an LLM (OpenAI/Anthropic) to decide actions, analyze errors, plan training.
-Inspired by OpenClaw's model-agnostic bring-your-own-keys approach.
+Inspired by Epslionic's model-agnostic bring-your-own-keys approach.
 """
 
 import json
@@ -10,7 +10,7 @@ import re
 from typing import Optional, Dict, Any, List, Callable
 from dataclasses import dataclass, field
 
-logger = logging.getLogger("openclaw.brain")
+logger = logging.getLogger("epsionic.brain")
 
 
 @dataclass
@@ -156,7 +156,7 @@ Include: what worked, what didn't, and recommendations for next steps."""
         tools_desc = self.get_tool_descriptions()
         memory = ""
 
-        return f"""You are an AI agent using OpenClaw architecture principles.
+        return f"""You are an AI agent using Epslionic architecture principles.
 You have access to tools. Decide which tool to call next to achieve the objective.
 
 ## Objective

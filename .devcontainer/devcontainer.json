@@ -1,5 +1,5 @@
 {
-    "name": "OpenClaw-Colab Agent Dev",
+    "name": "Epslionic Agent Dev",
     "image": "mcr.microsoft.com/devcontainers/python:3.11",
     "features": {
         "ghcr.io/devcontainers/features/nvidia-cuda:1": {}

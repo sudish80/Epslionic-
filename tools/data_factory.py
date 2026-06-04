@@ -8,7 +8,7 @@ import random
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
-logger = logging.getLogger("openclaw.tool.data_factory")
+logger = logging.getLogger("epsionic.tool.data_factory")
 
 SYNTHETIC_SEED_TASKS = {
     "math": ["Solve this math problem step by step", "Explain the concept of derivatives",

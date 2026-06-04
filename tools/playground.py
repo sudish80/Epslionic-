@@ -7,7 +7,7 @@ import threading
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
-logger = logging.getLogger("openclaw.tool.playground")
+logger = logging.getLogger("epsionic.tool.playground")
 
 
 class ModelPlayground:

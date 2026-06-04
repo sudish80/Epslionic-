@@ -2,8 +2,8 @@ include README.md
 include LICENSE
 include .env.example
 include pyproject.toml
-include openclaw_colab_agent/py.typed
-recursive-include openclaw_colab_agent *.py
+include epsionic/py.typed
+recursive-include epsionic *.py
 recursive-include tests *.py
 recursive-include docker *.dockerfile
 prune **/__pycache__

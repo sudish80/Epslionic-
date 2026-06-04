@@ -1,7 +1,7 @@
 """
 Dataset Discovery Tool - Automated Hugging Face dataset search and loading.
 Uses the Hugging Face Datasets API for discovery and retrieval.
-OpenClaw skill: encapsulates a reusable capability as a tool.
+Epslionic skill: encapsulates a reusable capability as a tool.
 """
 
 import json
@@ -9,7 +9,7 @@ import logging
 from typing import Optional, Dict, List, Any
 from pathlib import Path
 
-logger = logging.getLogger("openclaw.tool.dataset_discovery")
+logger = logging.getLogger("epsionic.tool.dataset_discovery")
 
 
 class DatasetDiscoveryTool:

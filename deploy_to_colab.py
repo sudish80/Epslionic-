@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OpenClaw-Colab Auto-Deployer
+Epslionic-Colab Auto-Deployer
 =============================
 Automatically generates a Colab notebook from the agent code
 and deploys it via GitHub for one-click Colab loading.
@@ -21,17 +21,17 @@ import webbrowser
 from pathlib import Path
 from datetime import datetime
 
-COLAB_NOTEBOOK_PATH = Path("OpenClaw_Colab_Agent.ipynb")
+COLAB_NOTEBOOK_PATH = Path("Epslionic_Colab_Agent.ipynb")
 
 
 def read_agent_code():
     """Read the complete agent file (thin wrapper)."""
     return '''#!/usr/bin/env python3
-"""OpenClaw-Colab: LLM Training Agent - Thin wrapper for Colab."""
+"""Epslionic-Colab: LLM Training Agent - Thin wrapper for Colab."""
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
-from openclaw_colab_agent.cli import main
+from epsionic.cli import main
 if __name__ == "__main__":
     sys.exit(main())
 '''
@@ -45,9 +45,9 @@ def generate_notebook(agent_code):
                 "cell_type": "markdown",
                 "metadata": {"id": "title"},
                 "source": [
-                    "# OpenClaw-Colab: LLM Training Agent\\n",
+                    "# Epslionic-Colab: LLM Training Agent\\n",
                     "\\n",
-                    "OpenClaw architecture: **Gateway -> Sessions -> Memory -> Heartbeat -> Brain -> Tools**\\n",
+                    "Epslionic architecture: **Gateway -> Sessions -> Memory -> Heartbeat -> Brain -> Tools**\\n",
                     "\\n",
                     "Capabilities:\\n",
                     "- **LLM Training** via Unsloth/QLoRA (optimized for Colab T4)\\n",
@@ -55,7 +55,7 @@ def generate_notebook(agent_code):
                     "- **Dataset Discovery** from Hugging Face\\n",
                     "- **LLM Brain** for reasoning and planning\\n",
                     "\\n",
-                    "*(Inspired by [github.com/openclaw/openclaw](https://github.com/openclaw/openclaw))*\\n",
+                    "*(Inspired by [github.com/epsionic/epsionic](https://github.com/epsionic/epsionic))*\\n",
                 ],
             },
             {
@@ -114,7 +114,7 @@ def generate_notebook(agent_code):
                     "---\\n",
                     "## Agent Source Code\\n",
                     "\\n",
-                    "Run this cell to load the complete OpenClaw-inspired agent (all classes).\\n",
+                    "Run this cell to load the complete Epslionic-inspired agent (all classes).\\n",
                 ],
             },
             {
@@ -155,8 +155,8 @@ def generate_notebook(agent_code):
                     "# Run this cell. The agent will show a menu. You pick a domain.\n",
                     "# It then runs the full pipeline: discover -> select -> configure -> train\n",
                     "\n",
-                    "from openclaw_agent_complete import ask_domain, domain_to_objective, DOMAINS\n",
-                    "from openclaw_agent_complete import Config, Gateway, DatasetTool, TrainerTool, FixerTool\n",
+                    "from epsionic_agent_complete import ask_domain, domain_to_objective, DOMAINS\n",
+                    "from epsionic_agent_complete import Config, Gateway, DatasetTool, TrainerTool, FixerTool\n",
                     "\n",
                     "cfg = Config()\n",
                     "cfg.openai_api_key = os.environ.get('OPENAI_API_KEY', '')\n",
@@ -301,7 +301,7 @@ def generate_notebook(agent_code):
                     "# ============================================================\n",
                     "# INTERACTIVE MODE\n",
                     "# ============================================================\n",
-                    "print('OpenClaw-Colab Interactive Agent')\n",
+                    "print('Epslionic-Colab Interactive Agent')\n",
                     "print('Commands: <objective>, status, quit')\n",
                     "while True:\n",
                     "    try:\n",
@@ -347,7 +347,7 @@ def generate_notebook(agent_code):
                     "# ============================================================\n",
                     "print(gateway.status_md())\n",
                     "print(f'\\\\nWorkspace: {cfg.workspace_root}')\n",
-                    "print('Save to Drive: !cp -r /content/openclaw_workspace /content/drive/MyDrive/')\n",
+                    "print('Save to Drive: !cp -r /content/epsionic_workspace /content/drive/MyDrive/')\n",
                 ],
             },
         ],
@@ -381,8 +381,8 @@ def generate_notebook(agent_code):
         "# ============================================================\n",
         "# CELL 3: Launch the agent using the modular package\n",
         "# ============================================================\n",
-        "from openclaw_colab_agent import get_gateway, get_dashboard\n",
-        "from openclaw_colab_agent.core.domain import DomainSelector, DOMAINS\n",
+        "from epsionic import get_gateway, get_dashboard\n",
+        "from epsionic.core.domain import DomainSelector, DOMAINS\n",
         "\n",
         "gateway = get_gateway(auto_install_deps=True)\n",
         "print('Gateway ready!')\n",
@@ -433,17 +433,17 @@ def github_deploy():
         print("  To deploy to GitHub:")
         print(f"    1. Create a repo at https://github.com/new")
         print(f"    2. Run these commands:")
-        print(f'       git remote add origin https://github.com/YOUR_USER/openclaw-colab-agent.git')
+        print(f'       git remote add origin https://github.com/YOUR_USER/epsionic.git')
         print(f'       git add -A')
-        print(f'       git commit -m "Initial commit: OpenClaw-Colab agent"')
+        print(f'       git commit -m "Initial commit: Epslionic-Colab agent"')
         print(f'       git branch -M main')
         print(f'       git push -u origin main')
         print()
         print(f"  Then in Colab, run ONE cell:")
         print(f"  ----------------------------------------")
-        print(f"  !git clone https://github.com/YOUR_USER/openclaw-colab-agent.git")
-        print(f"  %cd openclaw-colab-agent")
-        print(f"  !python openclaw_agent_complete.py --interactive")
+        print(f"  !git clone https://github.com/YOUR_USER/epsionic.git")
+        print(f"  %cd epsionic")
+        print(f"  !python epsionic_agent_complete.py --interactive")
         print(f"  ----------------------------------------")
         return None
 
@@ -481,7 +481,7 @@ def github_deploy():
         print(f"  ----------------------------------------")
         print(f"  !git clone {remote_url}")
         print(f"  %cd {os.path.basename(remote_url).replace('.git','')}")
-        print(f"  !python openclaw_agent_complete.py --interactive")
+        print(f"  !python epsionic_agent_complete.py --interactive")
         print(f"  ----------------------------------------")
 
         try:
@@ -504,7 +504,7 @@ def create_gist():
         result = subprocess.run(
             ["gh", "gist", "create", "--public",
              AGENT_FILE.name,
-             "-d", "OpenClaw-Colab: LLM Training Agent"],
+             "-d", "Epslionic-Colab: LLM Training Agent"],
             capture_output=True, text=True,
         )
         if result.returncode == 0:
@@ -515,8 +515,8 @@ def create_gist():
             print()
             print(f"  In Colab, run ONE cell:")
             print(f"  ----------------------------------------")
-            print(f"  !pip install -q openai && !wget -q {raw_url} -O openclaw_agent.py")
-            print(f"  !python openclaw_agent.py --interactive")
+            print(f"  !pip install -q openai && !wget -q {raw_url} -O epsionic_agent.py")
+            print(f"  !python epsionic_agent.py --interactive")
             print(f"  ----------------------------------------")
 
             try:
@@ -535,13 +535,13 @@ def create_gist():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Deploy OpenClaw-Colab Agent")
+    parser = argparse.ArgumentParser(description="Deploy Epslionic-Colab Agent")
     parser.add_argument("--gist", action="store_true", help="Create GitHub Gist")
     parser.add_argument("--no-github", action="store_true", help="Skip GitHub deploy")
     args = parser.parse_args()
 
     print("=" * 50)
-    print("  OpenClaw-Colab Auto-Deployer")
+    print("  Epslionic-Colab Auto-Deployer")
     print("=" * 50)
     print()
 

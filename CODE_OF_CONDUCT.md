@@ -15,7 +15,7 @@ Examples of behavior that contributes to a positive environment:
 
 ## Enforcement
 
-Project maintainers are responsible for clarifying standards and will take appropriate action. Instances of abusive behavior may be reported to the project team at conduct@openclaw.ai.
+Project maintainers are responsible for clarifying standards and will take appropriate action. Instances of abusive behavior may be reported to the project team at conduct@epsionic.ai.
 
 ## Attribution
 

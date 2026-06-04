@@ -3,8 +3,8 @@ version: "3.9"
 services:
   agent:
     build: .
-    image: openclaw-agent:latest
-    container_name: openclaw-agent
+    image: epsionic-agent:latest
+    container_name: epsionic-agent
     restart: unless-stopped
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -26,7 +26,7 @@ services:
               count: all
               capabilities: [gpu]
     healthcheck:
-      test: ["CMD", "python", "-c", "import openclaw_colab_agent; print('ok')"]
+      test: ["CMD", "python", "-c", "import epsionic; print('ok')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -34,7 +34,7 @@ services:
 
   dashboard:
     build: .
-    container_name: openclaw-dashboard
+    container_name: epsionic-dashboard
     restart: unless-stopped
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}

@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any, List
 from pathlib import Path
 from urllib.parse import urlencode
 
-logger = logging.getLogger("openclaw.tool.notifier")
+logger = logging.getLogger("epsionic.tool.notifier")
 
 
 class Notifier:
@@ -72,7 +72,7 @@ class Notifier:
             return
         msg = EmailMessage()
         msg.set_content(message)
-        msg["Subject"] = f"[OpenClaw] {title}"
+        msg["Subject"] = f"[Epslionic] {title}"
         msg["From"] = cfg.get("from_addr")
         msg["To"] = cfg.get("to_addr")
         with smtplib.SMTP(cfg["smtp_server"], cfg.get("smtp_port", 587)) as s:

@@ -1,5 +1,5 @@
 """
-Session Manager - OpenClaw-inspired per-session isolation with lane queues.
+Session Manager - Epslionic-inspired per-session isolation with lane queues.
 Each training run gets its own session with serial execution within the session.
 """
 
@@ -13,7 +13,7 @@ from enum import Enum
 from collections import deque
 import logging
 
-logger = logging.getLogger("openclaw.session")
+logger = logging.getLogger("epsionic.session")
 
 
 class SessionStatus(Enum):
@@ -48,7 +48,7 @@ class Session:
 
 
 class Lane:
-    """A serial execution lane - OpenClaw's lane queue pattern."""
+    """A serial execution lane - Epslionic's lane queue pattern."""
 
     def __init__(self, lane_id: str):
         self.id = lane_id

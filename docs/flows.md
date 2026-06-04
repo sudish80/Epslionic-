@@ -77,7 +77,7 @@ nodes:
 ## Python API
 
 ```python
-from openclaw_colab_agent.tools.flow import FlowEngine, register_node_type
+from epsionic.tools.flow import FlowEngine, register_node_type
 
 engine = FlowEngine()
 
@@ -128,7 +128,7 @@ graph TD;
 
 ## Comparison to n8n
 
-| Feature              | n8n           | OpenClaw Flow Engine       |
+| Feature              | n8n           | Epslionic Flow Engine       |
 |----------------------|---------------|----------------------------|
 | Visual editor        | Yes (UI)      | Mermaid export + API       |
 | Node types           | 400+          | 12 (LLM-specific)          |

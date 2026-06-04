@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Launch script for the OpenClaw-Colab Agent.
+Launch script for the Epslionic-Colab Agent.
 This can run in Google Colab or locally.
 
 Usage in Colab:
@@ -62,7 +62,7 @@ def setup_colab_environment():
 def launch_interactive(gateway):
     """Launch an interactive session."""
     print("\n" + "=" * 60)
-    print("  OpenClaw-Colab ML Training Agent")
+    print("  Epslionic-Colab ML Training Agent")
     print("  Type 'quit' to exit, 'status' for report")
     print("=" * 60)
 
@@ -94,7 +94,7 @@ def launch_interactive(gateway):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="OpenClaw-Colab ML Training Agent")
+    parser = argparse.ArgumentParser(description="Epslionic-Colab ML Training Agent")
     parser.add_argument("--objective", "-o", type=str, help="Training objective")
     parser.add_argument("--interactive", "-i", action="store_true", help="Interactive mode")
     parser.add_argument("--setup", action="store_true", help="Install dependencies")
@@ -112,8 +112,8 @@ def main():
         return
 
     # Initialize the gateway
-    from openclaw_colab_agent.config import AgentConfig
-    from openclaw_colab_agent.core import Gateway
+    from epsionic.config import AgentConfig
+    from epsionic.core import Gateway
 
     config = AgentConfig()
     if args.llm_key:
@@ -124,7 +124,7 @@ def main():
     gateway = Gateway(config)
 
     # Register tools
-    from openclaw_colab_agent.tools import DatasetDiscoveryTool, TrainerTool, AutoFixerTool
+    from epsionic.tools import DatasetDiscoveryTool, TrainerTool, AutoFixerTool
 
     discovery = DatasetDiscoveryTool(
         memory_store=gateway.memory,

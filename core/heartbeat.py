@@ -1,5 +1,5 @@
 """
-Heartbeat Monitor - OpenClaw-inspired proactive training monitoring.
+Heartbeat Monitor - Epslionic-inspired proactive training monitoring.
 Checks training progress, detects failures, and triggers auto-fix.
 """
 
@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional, List, Dict
 
-logger = logging.getLogger("openclaw.heartbeat")
+logger = logging.getLogger("epsionic.heartbeat")
 
 
 class HeartbeatMonitor:
