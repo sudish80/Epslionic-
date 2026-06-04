@@ -3,15 +3,28 @@ Supports loading plugins from local paths, GitHub repos, and PyPI packages."""
 
 import json
 import logging
-import os
+import shutil
 import subprocess
 import sys
-import importlib
+import re
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Callable
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
+from ..utils.security import (
+    sanitize_github_url, sanitize_pypi_package, sanitize_plugin_name,
+    sanitize_filename_component, is_safe_path, safe_subprocess,
+)
+
 logger = logging.getLogger("epsionic.tool.plugin_registry")
+
+_GITHUB_URL_PATTERN = re.compile(
+    r"^https://github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(?:\.git)?$"
+)
+
+
+class PluginRegistryError(Exception):
+    pass
 
 
 class PluginRegistry:
@@ -68,37 +81,57 @@ class PluginRegistry:
         return found
 
     def install_from_pypi(self, package_name: str, plugin_name: str = None) -> dict:
-        """Install a plugin from PyPI."""
-        name = plugin_name or package_name.replace("-", "_").replace(".", "_")
+        """Install a plugin from PyPI. Package name is validated to prevent injection."""
+        safe_pkg = sanitize_pypi_package(package_name)
+        if not safe_pkg:
+            return {"success": False, "error": "Invalid PyPI package name"}
+        name = sanitize_plugin_name(plugin_name) if plugin_name else safe_pkg.replace("-", "_").replace(".", "_")
+        if not name:
+            name = safe_pkg.replace("-", "_").replace(".", "_")
         try:
-            result = subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-q", package_name],
+            result = safe_subprocess(
+                [sys.executable, "-m", "pip", "install", "-q", safe_pkg],
                 capture_output=True, text=True, timeout=120,
             )
             if result.returncode != 0:
                 return {"success": False, "error": result.stderr[:500]}
             self._registry[name] = {
-                "name": name, "source": "pypi", "package": package_name,
+                "name": name, "source": "pypi", "package": safe_pkg,
                 "enabled": True, "installed_at": datetime.now().isoformat(),
-                "version": "1.0.0", "description": f"PyPI plugin: {package_name}",
+                "version": "1.0.0", "description": f"PyPI plugin: {safe_pkg}",
             }
             self._save_registry()
             return {"success": True, "plugin": name, "source": "pypi"}
+        except subprocess.TimeoutExpired:
+            return {"success": False, "error": "Package install timed out"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
     def install_from_github(self, repo_url: str, plugin_name: str = None) -> dict:
-        """Install a plugin from a GitHub repository."""
-        name = plugin_name or repo_url.split("/")[-1].replace(".git", "")
+        """Install a plugin from a GitHub repository. URL validated to prevent injection."""
+        safe_url = sanitize_github_url(repo_url)
+        if not safe_url:
+            return {"success": False, "error": "Invalid GitHub URL. Must be https://github.com/owner/repo"}
+        name = sanitize_plugin_name(plugin_name) if plugin_name else None
+        if not name:
+            name = safe_url.rstrip("/").split("/")[-1].replace(".git", "")
+            name = re.sub(r'[^a-zA-Z0-9_]', "_", name)
         target_dir = self.plugins_dir / name
+        # Prevent path traversal
         try:
-            import subprocess
+            target_dir = self.plugins_dir.resolve() / name
+            target_dir.relative_to(self.plugins_dir.resolve())
+        except (ValueError, RuntimeError):
+            return {"success": False, "error": "Invalid plugin name"}
+        try:
             if target_dir.exists():
-                import shutil; shutil.rmtree(target_dir)
-            subprocess.run(["git", "clone", repo_url, str(target_dir)],
-                           capture_output=True, text=True, timeout=120, check=True)
+                shutil.rmtree(target_dir)
+            safe_subprocess(
+                ["git", "clone", "--depth", "1", safe_url, str(target_dir)],
+                capture_output=True, text=True, timeout=120, check=True,
+            )
             self._registry[name] = {
-                "name": name, "source": "github", "repo": repo_url,
+                "name": name, "source": "github", "repo": safe_url,
                 "enabled": True, "installed_at": datetime.now().isoformat(),
                 "version": "0.1.0", "description": f"GitHub plugin: {name}",
             }
@@ -110,25 +143,33 @@ class PluginRegistry:
             return {"success": False, "error": str(e)}
 
     def install_from_path(self, path: str, plugin_name: str = None) -> dict:
-        """Install a plugin from a local file path."""
-        src = Path(path)
+        """Install a plugin from a local file path. Path validated to prevent traversal."""
+        if not is_safe_path(path):
+            return {"success": False, "error": "Invalid path: contains dangerous characters"}
+        src = Path(path).resolve()
         if not src.exists():
             return {"success": False, "error": f"Path not found: {path}"}
-        name = plugin_name or src.stem
-        if src.is_file() and src.suffix == ".py":
-            dst = self.plugins_dir / f"{name}.py"
-            import shutil
-            shutil.copy2(str(src), str(dst))
-        elif src.is_dir():
-            dst = self.plugins_dir / name
-            import shutil
-            if dst.exists():
-                shutil.rmtree(dst)
-            shutil.copytree(str(src), str(dst))
-        else:
-            return {"success": False, "error": f"Unsupported plugin type: {path}"}
+        name = sanitize_plugin_name(plugin_name) if plugin_name else sanitize_filename_component(src.stem)
+        if not name:
+            return {"success": False, "error": "Could not determine valid plugin name"}
+        try:
+            dst = (self.plugins_dir.resolve() / name)
+            dst.relative_to(self.plugins_dir.resolve())
+        except (ValueError, RuntimeError):
+            return {"success": False, "error": "Invalid plugin name"}
+        try:
+            if src.is_file() and src.suffix == ".py":
+                shutil.copy2(str(src), str(dst))
+            elif src.is_dir():
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(str(src), str(dst))
+            else:
+                return {"success": False, "error": f"Unsupported plugin type: {path}"}
+        except (shutil.Error, OSError) as e:
+            return {"success": False, "error": f"Copy failed: {e}"}
         self._registry[name] = {
-            "name": name, "source": "path", "path": str(path),
+            "name": name, "source": "path", "path": str(src),
             "enabled": True, "installed_at": datetime.now().isoformat(),
             "version": "0.1.0", "description": f"Local plugin: {name}",
         }
@@ -139,51 +180,54 @@ class PluginRegistry:
         return list(self._registry.values())
 
     def get_plugin(self, name: str) -> Optional[dict]:
-        return self._registry.get(name)
+        safe = sanitize_plugin_name(name)
+        return self._registry.get(safe) if safe else None
 
     def enable(self, name: str) -> bool:
-        if name in self._registry:
-            self._registry[name]["enabled"] = True
+        safe = sanitize_plugin_name(name)
+        if safe and safe in self._registry:
+            self._registry[safe]["enabled"] = True
             self._save_registry()
             return True
         return False
 
     def disable(self, name: str) -> bool:
-        if name in self._registry:
-            self._registry[name]["enabled"] = False
+        safe = sanitize_plugin_name(name)
+        if safe and safe in self._registry:
+            self._registry[safe]["enabled"] = False
             self._save_registry()
             return True
         return False
 
     def uninstall(self, name: str) -> bool:
-        if name not in self._registry:
+        safe = sanitize_plugin_name(name)
+        if not safe or safe not in self._registry:
             return False
-        plugin = self._registry[name]
-        # Remove files
-        if plugin.get("source") == "local" or plugin.get("source") == "path":
+        plugin = self._registry[safe]
+        if plugin.get("source") in ("local", "path"):
             p = Path(plugin.get("path", ""))
             if p.exists():
-                import shutil
                 if p.is_file():
                     p.unlink()
                 else:
                     shutil.rmtree(p)
         elif plugin.get("source") == "pypi":
             try:
-                subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", plugin.get("package", name)],
-                               capture_output=True, timeout=30)
+                safe_subprocess(
+                    [sys.executable, "-m", "pip", "uninstall", "-y", plugin.get("package", safe)],
+                    capture_output=True, timeout=30,
+                )
             except Exception:
                 pass
-        del self._registry[name]
+        del self._registry[safe]
         self._save_registry()
         return True
 
     def search_registry(self, query: str = "") -> List[dict]:
-        """Search locally registered plugins."""
         results = []
-        q = query.lower()
+        q = query.lower()[:100] if query else ""
         for name, info in self._registry.items():
-            if not q or q in name.lower() or q in info.get("description", "").lower():
+            if not q or q in name.lower() or q in info.get("description", "").lower()[:500]:
                 results.append(info)
         return results
 

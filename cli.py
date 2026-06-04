@@ -306,12 +306,32 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
         return 1
 
     from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
-    from fastapi import Depends, HTTPException, Security
+    from fastapi import Depends, HTTPException, Security, Request
     from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+    from starlette.middleware.base import BaseHTTPMiddleware
 
     _api_key = os.environ.get("EPSIONIC_API_KEY", "")
     _security = HTTPBearer(auto_error=False)
+
+    class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            response = await call_next(request)
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["X-XSS-Protection"] = "1; mode=block"
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data:; "
+                "connect-src 'self'; "
+                "frame-ancestors 'none';"
+            )
+            response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+            response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+            return response
 
     def _verify_key(credentials: Optional[HTTPAuthorizationCredentials] = Security(_security)):
         if not _api_key:
@@ -330,6 +350,16 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    # Input size limit middleware
+    from starlette.datastructures import MutableHeaders
+    @app.middleware("http")
+    async def limit_request_size(request: Request, call_next):
+        cl = request.headers.get("content-length")
+        if cl and int(cl) > 10 * 1024 * 1024:  # 10MB max
+            return JSONResponse({"error": "Request body too large"}, status_code=413)
+        return await call_next(request)
 
     @app.get("/health")
     def health(auth: bool = Depends(_verify_key)):
@@ -343,9 +373,12 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
             "budget_halted": _BUDGET_HALT if '_BUDGET_HALT' in dir() else False,
         }
 
+    import re
+    _DOMAIN_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
+
     @app.post("/train/{domain}")
     def train_domain(domain: str, auth: bool = Depends(_verify_key)):
-        if domain not in DOMAINS:
+        if not _DOMAIN_PATTERN.match(domain) or domain not in DOMAINS:
             raise HTTPException(status_code=400, detail=f"Unknown domain: {domain}")
         cfg = DOMAINS[domain]
         gw.state.domain = domain
@@ -370,8 +403,12 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
                 "fixed": gw.state.errors_fixed, "started": gw.state.started_at,
                 "budget": gw.check_budget() if hasattr(gw, 'check_budget') else True}
 
+    _EXP_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+_\d{8}_\d{6}$")
+
     @app.get("/experiments/{exp_id}")
     def get_experiment(exp_id: str, auth: bool = Depends(_verify_key)):
+        if not _EXP_ID_PATTERN.match(exp_id):
+            raise HTTPException(status_code=400, detail="Invalid experiment ID format")
         exp = gw.memory.get_experiment(exp_id)
         if not exp:
             raise HTTPException(status_code=404, detail="Experiment not found")
@@ -412,9 +449,15 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
         path = gw.memory.export_experiments_csv()
         return {"path": path, "count": len(gw.memory.list_experiments())}
 
+    from ..utils.security import sanitize_plugin_name
+
     @app.post("/jobs")
     def create_job(job_type: str, params: dict = None, priority: int = 0, auth: bool = Depends(_verify_key)):
-        job_id = gw.memory.create_job(job_type, params or {}, priority)
+        safe_type = sanitize_plugin_name(job_type)
+        if not safe_type:
+            raise HTTPException(status_code=400, detail="Invalid job type")
+        priority = min(max(int(priority), 0), 100)
+        job_id = gw.memory.create_job(safe_type, params or {}, priority)
         return {"job_id": job_id, "status": "queued"}
 
     @app.get("/jobs")
@@ -540,7 +583,14 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
     def get_logs(lines: int = 50, auth: bool = Depends(_verify_key)):
         import subprocess
         try:
-            result = subprocess.run(["tail", "-n", str(lines), str(Path(cfg.logs_dir) / "epsionic.log")],
+            n = min(max(int(lines), 1), 5000)
+            log_path = Path(cfg.logs_dir).resolve() / "epsionic.log"
+            # Prevent path traversal
+            if not str(log_path).startswith(str(Path(cfg.logs_dir).resolve())):
+                return {"logs": ["Invalid log path"]}
+            if not log_path.exists():
+                return {"logs": ["Log file not found"]}
+            result = subprocess.run(["tail", "-n", str(n), str(log_path)],
                                     capture_output=True, text=True, timeout=5)
             return {"logs": result.stdout.split("\n")}
         except Exception:
@@ -570,13 +620,17 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
+    _NODE_TYPE_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
+
     # Flow engine endpoints
     @app.post("/flows")
     def create_flow(name: str, description: str = "", auth: bool = Depends(_verify_key)):
+        if not isinstance(name, str) or len(name) > 200 or len(name) < 1:
+            raise HTTPException(status_code=400, detail="Invalid flow name")
         try:
             from .tools.flow import FlowEngine
             engine = FlowEngine()
-            fid = engine.create_flow(name, description)
+            fid = engine.create_flow(name[:200], description[:1000] if isinstance(description, str) else "")
             return {"flow_id": fid, "status": "created"}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
@@ -590,8 +644,12 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
         except Exception as e:
             return {"flows": [], "error": str(e)}
 
+    _FLOW_ID_PATTERN = re.compile(r"^flow_\d{8}_\d{6}_\d{6}$")
+
     @app.get("/flows/{flow_id}")
     def get_flow(flow_id: str, auth: bool = Depends(_verify_key)):
+        if not _FLOW_ID_PATTERN.match(flow_id):
+            raise HTTPException(status_code=400, detail="Invalid flow ID format")
         try:
             from .tools.flow import FlowEngine
             engine = FlowEngine()
@@ -606,6 +664,8 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
 
     @app.post("/flows/{flow_id}/trigger")
     def trigger_flow(flow_id: str, payload: dict = None, auth: bool = Depends(_verify_key)):
+        if not _FLOW_ID_PATTERN.match(flow_id):
+            raise HTTPException(status_code=400, detail="Invalid flow ID format")
         try:
             from .tools.flow import FlowEngine
             engine = FlowEngine()
@@ -618,20 +678,25 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
     @app.post("/flows/{flow_id}/nodes")
     def add_flow_node(flow_id: str, node_type: str, params: dict = None,
                       after_node: str = None, auth: bool = Depends(_verify_key)):
+        if not _FLOW_ID_PATTERN.match(flow_id):
+            raise HTTPException(status_code=400, detail="Invalid flow ID format")
+        if not _NODE_TYPE_PATTERN.match(node_type):
+            raise HTTPException(status_code=400, detail="Invalid node type")
         try:
             from .tools.flow import FlowEngine
             engine = FlowEngine()
-            nid = engine.add_node(flow_id, node_type, params, after_node=after_node)
+            nid = engine.add_node(flow_id, node_type, params or {}, after_node=after_node)
             return {"node_id": nid, "status": "added"}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.get("/flows/editor")
     def flow_editor(auth: bool = Depends(_verify_key)):
-        html = r"""<!DOCTYPE html>
+        html = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';">
 <title>Epslionic Flow Editor</title>
 <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
 <style>
@@ -641,43 +706,43 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 #toolbar button{padding:8px 16px;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px}
 #toolbar button:hover{background:#2563eb}
 #toolbar select{padding:8px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#e2e8f0;font-size:14px}
-#cy{flex:1;display:flex}
+#cy{flex:1}
 #panel{width:320px;background:#1e293b;padding:16px;border-left:1px solid #334155;overflow-y:auto;display:flex;flex-direction:column;gap:12px}
 #panel input,#panel textarea{width:100%;padding:8px;background:#0f172a;border:1px solid #475569;border-radius:4px;color:#e2e8f0;font-size:13px}
 #panel label{font-size:12px;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px}
-.node-label{font-size:11px;text-align:center;padding:2px 6px;background:#1e293b;border-radius:4px;color:#e2e8f0;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 </style></head>
 <body>
 <div id="toolbar">
 <strong style="color:#3b82f6;font-size:16px">Epslionic Flow Editor</strong>
 <select id="nodeType"><option value="train">Train</option><option value="discover">Discover</option><option value="evaluate">Evaluate</option><option value="preference_train">Preference Train</option><option value="merge_models">Merge</option><option value="generate_data">Generate Data</option><option value="quantize">Quantize</option></select>
 <button onclick="addNode()">+ Add Node</button>
-<button onclick="saveFlow()">💾 Save</button>
-<button onclick="runFlow()">▶ Run</button>
-<button onclick="loadFlows()">📂 Load</button>
+<button onclick="saveFlow()">Save</button>
+<button onclick="runFlow()">Run</button>
+<button onclick="loadFlows()">Load</button>
 <span id="flowLabel" style="color:#94a3b8;font-size:13px">No flow loaded</span>
 </div>
+<div style="display:flex;flex:1">
 <div id="cy"></div>
 <div id="panel">
 <label>Flow Name</label><input id="flowName" placeholder="my-training-flow" value="untitled">
 <label>Node ID</label><input id="nodeId" placeholder="auto">
 <label>Params (JSON)</label><textarea id="nodeParams" rows="4" placeholder='{"model":"mistral-7b"}'></textarea>
 <label>Retry on fail</label><input id="retryCount" type="number" value="0" min="0">
-</div>
+</div></div>
 <script>
-let cy, currentFlowId = null, nodes = [], edges = [];
-const API = window.location.origin;
-document.addEventListener('DOMContentLoaded',()=>{
-cy=cytoscape({container:document.getElementById('cy'),style:[{selector:'node',style:{'background-color':'#3b82f6',label:'data(label)','text-valign':'bottom','color':'#e2e8f0','font-size':'11px','width':60,'height':60,'shape':'round-rectangle','padding':'4px'}},{selector:'edge',style:{'width':2,'line-color':'#475569','target-arrow-color':'#475569','target-arrow-shape':'triangle','curve-style':'bezier','arrow-scale':1.2}},{selector:':selected',style:{'border-width':3,'border-color':'#f59e0b'}}],layout:{name:'grid',rows:1},wheelSensitivity:.3});
-cy.on('tap','node',function(e){const n=e.target;document.getElementById('nodeId').value=n.id();document.getElementById('nodeParams').value=JSON.stringify(n.data('params')||{},null,2);document.getElementById('retryCount').value=n.data('retry')||0});
+function esc(s){var d=document.createElement('div');d.appendChild(document.createTextNode(s));return d.innerHTML}
+var cy,currentFlowId=null,nodes=[],edges=[];
+var API=window.location.origin;
+document.addEventListener('DOMContentLoaded',function(){
+cy=cytoscape({container:document.getElementById('cy'),style:[{selector:'node',style:{'background-color':'#3b82f6','label':'data(label)','text-valign':'bottom','color':'#e2e8f0','font-size':'11px','width':60,'height':60,'shape':'round-rectangle'}},{selector:'edge',style:{'width':2,'line-color':'#475569','target-arrow-color':'#475569','target-arrow-shape':'triangle','curve-style':'bezier'}},{selector:':selected',style:{'border-width':3,'border-color':'#f59e0b'}}],layout:{name:'grid'},wheelSensitivity:0.3});
+cy.on('tap','node',function(e){var n=e.target;document.getElementById('nodeId').value=n.id();document.getElementById('nodeParams').value=JSON.stringify(n.data('params')||{},null,2);document.getElementById('retryCount').value=n.data('retry')||0});
 cy.on('dragfree','node',function(){positionNodes()});
 });
-function addNode(){const t=document.getElementById('nodeType').value;const p=document.getElementById('nodeParams').value;const params=p?JSON.parse(p):{};const retry=parseInt(document.getElementById('retryCount').value)||0;const nid=document.getElementById('nodeId').value||'node_'+(nodes.length+1);const label=t.charAt(0).toUpperCase()+t.slice(1).replace('_',' ');nodes.push({id:nid,type:t,params,retry_on_fail:retry});cy.add({group:'nodes',data:{id:nid,label,type:t,params,retry}});positionNodes();document.getElementById('nodeId').value='';}
-function positionNodes(){const n=cy.nodes();const cols=Math.ceil(Math.sqrt(n.length));n.forEach((node,i)=>{const col=i%cols,row=Math.floor(i/cols);node.position({x:100+col*160,y:80+row*120})});cy.layout({name:'preset',fit:true,padding:30}).run();}
-function connectNodes(srcId,tgtId){edges.push({source:srcId,target:tgtId});cy.add({group:'edges',data:{source:srcId,target:tgtId,id:'e_'+srcId+'_'+tgtId}});}
-function saveFlow(){const data={name:document.getElementById('flowName').value||'untitled',nodes:nodes.map(n=>({...n,connections:{output:edges.find(e=>e.source===n.id)?edges.find(e=>e.source===n.id).target:null}}))};fetch(API+'/flows',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:data.name})}).then(r=>r.json()).then(res=>{currentFlowId=res.flow_id;document.getElementById('flowLabel').textContent='Flow: '+res.flow_id;data.nodes.forEach((n,i,arr)=>{const after=i>0?arr[i-1].id:null;fetch(API+'/flows/'+currentFlowId+'/nodes?node_type='+n.type+'&after_node='+(after||''),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({params:n.params||{}})}).catch(e=>console.error(e))});alert('Flow saved: '+res.flow_id)}).catch(e=>alert('Save failed: '+e));}
-function loadFlows(){fetch(API+'/flows').then(r=>r.json()).then(d=>{const ids=d.flows.map(f=>f.id).join('\n');const id=prompt('Available flows:\n'+ids+'\n\nEnter Flow ID:');if(!id)return;fetch(API+'/flows/'+id).then(r=>r.json()).then(flow=>{currentFlowId=id;document.getElementById('flowLabel').textContent='Flow: '+id;document.getElementById('flowName').value=flow.name||id;nodes=[];edges=[];cy.elements().remove();(flow.nodes||[]).forEach(n=>{nodes.push(n);cy.add({group:'nodes',data:{id:n.id,label:(n.type||'?').charAt(0).toUpperCase()+(n.type||'?').slice(1),type:n.type,params:n.params,retry:n.retry_on_fail}});if(n.connections&&n.connections.output){const tgt=n.connections.output;edges.push({source:n.id,target:tgt});cy.add({group:'edges',data:{source:n.id,target:tgt,id:'e_'+n.id+'_'+tgt}});}});positionNodes()})})}
-function runFlow(){if(!currentFlowId){alert('Save or load a flow first');return}fetch(API+'/flows/'+currentFlowId+'/trigger',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.json()).then(r=>{const ok=r.result&&r.result.success?'✅ Success':'❌ Failed';alert('Run '+currentFlowId+': '+ok+'\nCheck API response for details')}).catch(e=>alert('Run failed: '+e));}
+function addNode(){var t=document.getElementById('nodeType').value;var p=document.getElementById('nodeParams').value;var params=p?JSON.parse(p):{};var retry=parseInt(document.getElementById('retryCount').value)||0;var nid=document.getElementById('nodeId').value||'node_'+(nodes.length+1);var label=t.charAt(0).toUpperCase()+t.slice(1).replace('_',' ');nodes.push({id:nid,type:t,params:params,retry_on_fail:retry});cy.add({group:'nodes',data:{id:nid,label:label,type:t,params:params,retry:retry}});positionNodes();document.getElementById('nodeId').value='';}
+function positionNodes(){var n=cy.nodes();var cols=Math.ceil(Math.sqrt(n.length));n.forEach(function(node,i){var col=i%cols,row=Math.floor(i/cols);node.position({x:100+col*160,y:80+row*120})});cy.layout({name:'preset',fit:true,padding:30}).run();}
+function saveFlow(){var name=esc(document.getElementById('flowName').value||'untitled');fetch(API+'/flows',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})}).then(function(r){return r.json()}).then(function(res){currentFlowId=res.flow_id;document.getElementById('flowLabel').textContent='Flow: '+res.flow_id;var p=[];nodes.forEach(function(n,i){var after=i>0?nodes[i-1].id:null;p.push(fetch(API+'/flows/'+currentFlowId+'/nodes?node_type='+encodeURIComponent(n.type)+'&after_node='+(after||''),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({params:n.params||{}})}))});Promise.all(p).then(function(){alert('Flow saved: '+res.flow_id)}).catch(function(e){console.error(e)})}).catch(function(e){alert('Save failed')});}
+function loadFlows(){fetch(API+'/flows').then(function(r){return r.json()}).then(function(d){if(!d.flows||!d.flows.length){alert('No flows found');return}var msg='Available flows:\\n';d.flows.forEach(function(f){msg+=f.id+' - '+esc(f.name||'?')+'\\n'});var id=prompt(msg+'\\nEnter Flow ID:');if(!id)return;fetch(API+'/flows/'+encodeURIComponent(id)).then(function(r){return r.json()}).then(function(flow){currentFlowId=id;document.getElementById('flowLabel').textContent='Flow: '+id;document.getElementById('flowName').value=flow.name||id;nodes=[];edges=[];cy.elements().remove();(flow.nodes||[]).forEach(function(n){nodes.push(n);cy.add({group:'nodes',data:{id:n.id,label:esc(n.type||'?').charAt(0).toUpperCase()+esc(n.type||'?').slice(1),type:n.type,params:n.params,retry:n.retry_on_fail}});if(n.connections&&n.connections.output){var tgt=n.connections.output;edges.push({source:n.id,target:tgt});cy.add({group:'edges',data:{source:n.id,target:tgt,id:'e_'+n.id+'_'+tgt}})}});positionNodes()})})}
+function runFlow(){if(!currentFlowId){alert('Save or load a flow first');return}fetch(API+'/flows/'+currentFlowId+'/trigger',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json()}).then(function(r){var ok=r.result&&r.result.success?'Success':'Failed';alert('Run '+esc(currentFlowId)+': '+ok)}).catch(function(e){alert('Run failed')});}
 </script></body></html>"""
         return HTMLResponse(content=html)
 

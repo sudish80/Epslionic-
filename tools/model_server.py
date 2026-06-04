@@ -4,12 +4,23 @@ Deploys trained models as OpenAI-compatible API endpoints with multi-provider su
 import json
 import logging
 import os
+import re
+import shutil
+import subprocess
 import threading
 import time
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
+from ..utils.security import validate_port, is_safe_path
+
 logger = logging.getLogger("epsionic.tool.model_server")
+
+# Allowlist of safe model path patterns
+_SAFE_MODEL_PATH = re.compile(r"^[\w./\-:@]+$")
+_SAFE_MODEL_NAME = re.compile(r"^[a-zA-Z0-9][\w./\-:@]*$")
+# Blocklist of shell metacharacters
+_SHELL_BLOCKLIST = re.compile(r"[`$|;&<>(){}'\"!#~\[\]\n\r]")
 
 
 class ModelServer:
@@ -22,51 +33,107 @@ class ModelServer:
         self._running = False
         self._provider = None
 
+    @staticmethod
+    def _sanitize_model_path(model_path: str) -> Optional[str]:
+        """Validate model path is safe for CLI usage. Returns sanitized path or None."""
+        if not isinstance(model_path, str) or len(model_path) > 500:
+            return None
+        # Must match safe pattern and contain no shell metacharacters
+        if not _SAFE_MODEL_PATH.match(model_path):
+            return None
+        if _SHELL_BLOCKLIST.search(model_path):
+            return None
+        return model_path
+
+    @staticmethod
+    def _sanitize_model_name(name: str) -> Optional[str]:
+        """Validate a model name string for safety."""
+        if not isinstance(name, str) or len(name) > 200:
+            return None
+        if _SHELL_BLOCKLIST.search(name):
+            return None
+        if _SAFE_MODEL_NAME.match(name):
+            return name
+        return None
+
+    @staticmethod
+    def _sanitize_api_base(url: str) -> Optional[str]:
+        """Sanitize API base URL to prevent SSRF. Only http/https allowed."""
+        if not isinstance(url, str) or len(url) > 500:
+            return None
+        url = url.strip()
+        # Only allow http/https
+        if not url.startswith("http://") and not url.startswith("https://"):
+            return None
+        # No localhost/private IP SSRF guard
+        import re as _re
+        blocked_hosts = [
+            _re.compile(r"^https?://127\.\d+\.\d+\.\d+", _re.I),
+            _re.compile(r"^https?://10\.\d+\.\d+\.\d+", _re.I),
+            _re.compile(r"^https?://172\.1[6-9]\.\d+\.\d+", _re.I),
+            _re.compile(r"^https?://172\.2\d+\.\d+\.\d+", _re.I),
+            _re.compile(r"^https?://172\.3[01]\.\d+\.\d+", _re.I),
+            _re.compile(r"^https?://192\.168\.\d+\.\d+", _re.I),
+            _re.compile(r"^https?://localhost", _re.I),
+            _re.compile(r"^https?://\[::1\]", _re.I),
+            _re.compile(r"^https?://0\.0\.0\.0", _re.I),
+        ]
+        for pattern in blocked_hosts:
+            if pattern.match(url):
+                return None
+        return url
+
     def deploy(self, model_path: str, provider: str = "auto", port: int = 8000,
                gpu_memory_utilization: float = 0.9, max_model_len: int = 4096,
                api_base: str = None, api_key: str = None) -> dict:
         """Auto-select provider based on availability and user preference."""
-        provider = provider.lower() if provider else "auto"
+        safe_path = self._sanitize_model_path(model_path)
+        if not safe_path:
+            return {"success": False, "error": "Invalid model path", "provider": "none"}
+        safe_port = validate_port(port) or 8000
+        provider = (provider or "auto").lower()
         if provider == "vllm":
-            return self.deploy_vllm(model_path, port, gpu_memory_utilization, max_model_len)
+            return self.deploy_vllm(safe_path, safe_port, gpu_memory_utilization, max_model_len)
         elif provider == "transformers":
-            return self.deploy_transformers(model_path, port)
+            return self.deploy_transformers(safe_path, safe_port)
         elif provider == "tgi":
-            return self.deploy_tgi(model_path, port)
+            return self.deploy_tgi(safe_path, safe_port)
         elif provider == "ollama":
-            return self.deploy_ollama(model_path, port)
+            return self.deploy_ollama(safe_path, safe_port)
         elif provider == "openai":
-            return self.deploy_openai_proxy(model_path, api_base=api_base, api_key=api_key)
-        # Auto-detect
+            safe_base = self._sanitize_api_base(api_base) if api_base else None
+            return self.deploy_openai_proxy(safe_path, api_base=safe_base, api_key=api_key)
         for p in ["vllm", "tgi", "ollama"]:
             try:
-                result = getattr(self, f"deploy_{p}")(model_path, port)
+                result = getattr(self, f"deploy_{p}")(safe_path, safe_port)
                 if result.get("success"):
                     return result
             except Exception:
                 continue
-        return self.deploy_transformers(model_path, port)
+        return self.deploy_transformers(safe_path, safe_port)
 
     def deploy_vllm(self, model_path: str, port: int = 8000,
                     gpu_memory_utilization: float = 0.9,
                     max_model_len: int = 4096) -> dict:
         """Deploy model using vLLM's OpenAI-compatible server."""
+        safe_path = self._sanitize_model_path(model_path)
+        if not safe_path:
+            return {"success": False, "error": "Invalid model path", "provider": "vllm"}
+        safe_port = validate_port(port) or 8000
         try:
-            import subprocess
             cmd = [
                 "python", "-m", "vllm.entrypoints.openai.api_server",
-                "--model", model_path,
-                "--port", str(port),
-                "--gpu-memory-utilization", str(gpu_memory_utilization),
-                "--max-model-len", str(max_model_len),
+                "--model", safe_path,
+                "--port", str(safe_port),
+                "--gpu-memory-utilization", str(min(max(gpu_memory_utilization, 0.1), 0.99)),
+                "--max-model-len", str(min(max(max_model_len, 512), 131072)),
                 "--trust-remote-code",
                 "--dtype", "float16",
             ]
             env = os.environ.copy()
             env["CUDA_VISIBLE_DEVICES"] = "0"
-
             self._process = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self._endpoint_url = f"http://localhost:{port}/v1"
+            self._endpoint_url = f"http://localhost:{safe_port}/v1"
             self._running = True
             self._provider = "vllm"
 
@@ -80,57 +147,64 @@ class ModelServer:
 
             threading.Thread(target=_monitor, daemon=True).start()
             return {"success": True, "endpoint": self._endpoint_url, "provider": "vllm",
-                    "model": model_path, "port": port}
+                    "model": safe_path, "port": safe_port}
         except Exception as e:
             logger.error(f"vLLM deploy failed: {e}")
             return {"success": False, "error": str(e), "provider": "vllm"}
 
     def deploy_tgi(self, model_path: str, port: int = 8000) -> dict:
         """Deploy using HuggingFace TGI (text-generation-inference)."""
+        safe_path = self._sanitize_model_path(model_path)
+        if not safe_path:
+            return {"success": False, "error": "Invalid model path", "provider": "tgi"}
+        safe_port = validate_port(port) or 8000
         try:
-            import subprocess
             cmd = [
                 "text-generation-launcher",
-                "--model-id", model_path,
-                "--port", str(port),
+                "--model-id", safe_path,
+                "--port", str(safe_port),
                 "--max-input-length", "2048",
                 "--max-total-tokens", "4096",
                 "--trust-remote-code",
             ]
             self._process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self._endpoint_url = f"http://localhost:{port}"
+            self._endpoint_url = f"http://localhost:{safe_port}"
             self._running = True
             self._provider = "tgi"
             return {"success": True, "endpoint": self._endpoint_url, "provider": "tgi",
-                    "model": model_path, "port": port}
+                    "model": safe_path, "port": safe_port}
         except Exception as e:
             logger.warning(f"TGI deploy failed (may not be installed): {e}")
             return {"success": False, "error": str(e), "provider": "tgi"}
 
     def deploy_ollama(self, model_path: str, port: int = 8000) -> dict:
         """Use Ollama to serve a model from its library or a local GGUF."""
+        safe_path = self._sanitize_model_path(model_path)
+        if not safe_path:
+            return {"success": False, "error": "Invalid model path", "provider": "ollama"}
         try:
-            import subprocess, shutil
             ollama_path = shutil.which("ollama")
             if not ollama_path:
                 return {"success": False, "error": "Ollama not found in PATH", "provider": "ollama"}
-            # If it's a local file, create a Modelfile
-            model_name = Path(model_path).stem if Path(model_path).exists() else model_path
-            if Path(model_path).exists():
-                modelfile = f"FROM {model_path}\n"
-                modelfile_path = Path(model_path).parent / "Modelfile"
+            safe_name = self._sanitize_model_name(Path(safe_path).stem if Path(safe_path).exists() else safe_path)
+            if not safe_name:
+                safe_name = "epsionic-model"
+            if Path(safe_path).exists():
+                modelfile = f"FROM {safe_path}\n"
+                modelfile_path = Path(safe_path).parent / "Modelfile"
                 modelfile_path.write_text(modelfile)
-                subprocess.run([ollama_path, "create", model_name, "-f", str(modelfile_path)],
+                subprocess.run([ollama_path, "create", safe_name, "-f", str(modelfile_path)],
                                capture_output=True, timeout=300)
-            # Run ollama serve in background if not running
             self._process = subprocess.Popen([ollama_path, "serve"],
                                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             time.sleep(3)
-            self._endpoint_url = f"http://localhost:11434"
+            self._endpoint_url = "http://localhost:11434"
             self._running = True
             self._provider = "ollama"
             return {"success": True, "endpoint": self._endpoint_url, "provider": "ollama",
-                    "model": model_name, "port": 11434}
+                    "model": safe_name, "port": 11434}
+        except subprocess.TimeoutExpired:
+            return {"success": False, "error": "Ollama create timed out", "provider": "ollama"}
         except Exception as e:
             logger.warning(f"Ollama deploy failed: {e}")
             return {"success": False, "error": str(e), "provider": "ollama"}
@@ -138,12 +212,18 @@ class ModelServer:
     def deploy_openai_proxy(self, model_path: str, api_base: str = None,
                             api_key: str = None) -> dict:
         """Proxy through an existing OpenAI-compatible endpoint."""
-        self._endpoint_url = api_base or os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1")
+        safe_path = self._sanitize_model_path(model_path)
+        if not safe_path:
+            return {"success": False, "error": "Invalid model path", "provider": "openai"}
+        safe_base = self._sanitize_api_base(api_base) if api_base else None
+        if api_base and not safe_base:
+            return {"success": False, "error": "API base URL rejected (SSRF guard)", "provider": "openai"}
+        self._endpoint_url = safe_base or os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1")
         self._running = True
         self._provider = "openai"
         self.config["openai_api_key"] = api_key or os.environ.get("OPENAI_API_KEY", "")
         return {"success": True, "endpoint": self._endpoint_url, "provider": "openai",
-                "model": model_path}
+                "model": safe_path}
 
     def deploy_transformers(self, model_path: str, port: int = 8001) -> dict:
         """Deploy using a lightweight FastAPI + Transformers server."""

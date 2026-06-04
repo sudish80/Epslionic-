@@ -90,9 +90,12 @@ class ModelQuantizer:
                 model.save_pretrained(str(tmp_model))
                 tokenizer.save_pretrained(str(tmp_model))
 
+                safe_tmp = str(tmp_model.resolve())
+                safe_out = str(Path(output_path).resolve())
+                safe_q = quantize.strip().lower()[:10] if quantize else "q4_0"
                 result = subprocess.run(
-                    ["python", "-m", "llama_cpp.convert", str(tmp_model), "--outfile", output_path,
-                     "--outtype", quantize.replace("q", "q").upper()],
+                    ["python", "-m", "llama_cpp.convert", safe_tmp, "--outfile", safe_out,
+                     "--outtype", safe_q.upper()],
                     capture_output=True, text=True, timeout=30,
                 )
                 if result.returncode != 0:
