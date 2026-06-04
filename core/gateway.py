@@ -1,6 +1,9 @@
 import json
 import time
+import signal
+import atexit
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, Callable, List, Tuple
@@ -23,7 +26,7 @@ from ..utils.device import DeviceManager
 
 logger = logging.getLogger("epsionic.gateway")
 
-_BUDGET_HALT = False
+_budget_lock = threading.Lock()
 
 
 @dataclass
@@ -48,6 +51,7 @@ class Gateway:
         self.state = AgentState()
         self.state.started_at = datetime.now().isoformat()
         self._fsm = StateMachine("idle")
+        self._budget_halt = False
 
         self.memory = self._create_memory_store(config)
         self._mem_store_type = getattr(self.memory, 'store_type', 'file')
@@ -453,11 +457,11 @@ class Gateway:
 
     def check_budget(self) -> bool:
         """Return False if over budget (training should halt)."""
-        global _BUDGET_HALT
-        if _BUDGET_HALT:
+        if self._budget_halt:
             return False
         if self._cost_tracker and self._cost_tracker.is_over_budget():
-            _BUDGET_HALT = True
+            with _budget_lock:
+                self._budget_halt = True
             msg = f"Training halted: budget ${self._cost_tracker.get_session_cost():.2f} exceeds limit"
             logger.warning(msg)
             self.memory.write_agent_state("budget_halt", {
@@ -537,6 +541,7 @@ class Gateway:
 
     def shutdown(self):
         self._scheduler_running = False
+        self._budget_halt = False
         self._log_audit("shutdown", {"status": self.state.status, "domain": self.state.domain, "tools": self.state.tools_loaded})
         self._plugin_manager.run_hook("on_shutdown")
         self.heartbeat.stop()
@@ -544,3 +549,14 @@ class Gateway:
         self._state_transition("stopped")
         self._running = False
         logger.info("Gateway shutdown complete")
+
+    def _setup_graceful_shutdown(self):
+        """Register signal handlers and atexit for clean shutdown."""
+        def _handler(signum, frame):
+            logger.info("Signal %s received, shutting down...", signum)
+            self.shutdown()
+
+        signal.signal(signal.SIGINT, _handler)
+        signal.signal(signal.SIGTERM, _handler)
+        atexit.register(self.shutdown)
+        logger.debug("Graceful shutdown handlers registered")

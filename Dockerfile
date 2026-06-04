@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
 COPY pyproject.toml setup.py MANIFEST.in ./
 COPY __init__.py cli.py config.py exceptions.py launch.py deploy_to_colab.py epsionic_agent_complete.py ./
 COPY core/ core/
+COPY memory/ memory/
 COPY tools/ tools/
 COPY utils/ utils/
 COPY tests/ tests/
@@ -27,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /build/dist/*.whl /tmp/
-RUN pip install --no-cache-dir /tmp/*.whl && rm /tmp/*.whl
+RUN pip install --no-cache-dir /tmp/*.whl && rm /tmp/*.whl && pip install --no-cache-dir fastapi uvicorn
 
 RUN addgroup --system epsionic && adduser --system --ingroup epsionic epsionic
 USER epsionic

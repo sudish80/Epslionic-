@@ -1,41 +1,33 @@
 name: Publish to PyPI
 
 on:
-  release:
-    types: [published]
-  workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "Dry run (don't upload to PyPI)"
-        required: true
-        default: true
-        type: boolean
+  push:
+    tags:
+      - "v*"
 
 jobs:
   publish:
-    name: Build & Publish
     runs-on: ubuntu-latest
     permissions:
       id-token: write
-      contents: read
 
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install build tools
         run: |
           python -m pip install --upgrade pip
           pip install build twine
 
-      - name: Build distributions
+      - name: Build sdist and wheel
         run: python -m build
 
-      - name: Check distributions
-        run: twine check dist/*
-
-      - name: Upload to PyPI
-        if: ${{ !inputs.dry_run }}
+      - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}

@@ -118,6 +118,17 @@ class MemPalaceStore:
     def close(self):
         self._conn.close()
 
+    def backup(self, backup_path: str | Path = None) -> Path:
+        """Create a WAL-consistent backup of the SQLite database."""
+        import shutil
+        target = Path(backup_path or self.palace_path / f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        self._conn.commit()
+        shutil.copy2(str(self.db_path), str(target))
+        logger.info("Backup created at %s (%d bytes)", target, target.stat().st_size)
+        return target
+
     # ── Wing Management (Domains) ─────────────────────────────────
 
     def ensure_wing(self, name: str, description: str = "") -> str:

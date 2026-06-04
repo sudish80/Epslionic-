@@ -1,0 +1,2 @@
+# Auto-detect line endings — LF in repo, check out as-is on the current platform
+* text=auto

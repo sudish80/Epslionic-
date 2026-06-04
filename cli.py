@@ -354,6 +354,27 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
 
     # Input size limit middleware
     from starlette.datastructures import MutableHeaders
+    import time as _time
+    from collections import defaultdict
+    _rate_limit_buckets: dict = defaultdict(list)
+    _RATE_LIMIT_WINDOW = 60  # seconds
+    _RATE_LIMIT_MAX = 100    # requests per window
+
+    @app.middleware("http")
+    async def rate_limit_middleware(request: Request, call_next):
+        client_ip = request.client.host if request.client else "unknown"
+        now = _time.time()
+        bucket = _rate_limit_buckets[client_ip]
+        bucket[:] = [t for t in bucket if now - t < _RATE_LIMIT_WINDOW]
+        if len(bucket) >= _RATE_LIMIT_MAX:
+            return JSONResponse(
+                {"error": "Rate limit exceeded", "retry_after": _RATE_LIMIT_WINDOW},
+                status_code=429,
+                headers={"Retry-After": str(_RATE_LIMIT_WINDOW)},
+            )
+        bucket.append(now)
+        return await call_next(request)
+
     @app.middleware("http")
     async def limit_request_size(request: Request, call_next):
         cl = request.headers.get("content-length")
@@ -370,8 +391,19 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
             "tools": len(gw._tool_registry),
             "uptime": gw.state.started_at,
             "schedules": len(gw._schedule),
-            "budget_halted": _BUDGET_HALT if '_BUDGET_HALT' in dir() else False,
+            "budget_halted": getattr(gw, "_budget_halt", False),
         }
+
+    @app.get("/ready")
+    def readiness(auth: bool = Depends(_verify_key)):
+        issues = []
+        if not getattr(gw, "_tool_registry", None):
+            issues.append("no tools registered")
+        if not getattr(gw, "_running", None) and gw.state.status != "running":
+            pass
+        if issues:
+            return JSONResponse(status_code=503, content={"status": "not ready", "issues": issues})
+        return {"status": "ready", "uptime": gw.state.started_at}
 
     import re
     _DOMAIN_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
@@ -842,14 +874,11 @@ def _auto_install(essential_only: bool = False):
 
 
 def _setup_signal_handlers(gw):
-    import signal
-    def _handler(signum, frame):
-        logger.info(f"Signal {signum} received, shutting down...")
-        if gw:
-            gw.shutdown()
-        sys.exit(0)
-    signal.signal(signal.SIGINT, _handler)
-    signal.signal(signal.SIGTERM, _handler)
+    """Delegate to gateway's built-in graceful shutdown handlers."""
+    if hasattr(gw, "_setup_graceful_shutdown"):
+        gw._setup_graceful_shutdown()
+    else:
+        logger.warning("Gateway has no graceful shutdown handler")
 
 
 def main(argv: Optional[list] = None) -> int:

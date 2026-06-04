@@ -51,52 +51,32 @@ class TestGateway:
     # ── Budget halt tests ─────────────────────────────────────────
 
     def test_check_budget_under_limit(self, gateway):
-        """check_budget returns True when cost is under budget."""
         assert gateway.check_budget() is True
 
     def test_check_budget_over_limit(self, gateway):
-        """check_budget returns False when cost exceeds budget."""
-        from epsionic.core.gateway import _BUDGET_HALT
-        # Reset global flag
-        import epsionic.core.gateway as gw_mod
-        gw_mod._BUDGET_HALT = False
-
-        # Set up cost tracker with low limit
+        gateway._budget_halt = False
         from epsionic.tools.cost_tracker import CostTracker
         gateway._cost_tracker = CostTracker(memory_store=gateway.memory, budget_limit=1.0)
-
-        # Track enough cost to exceed $1 budget (T4 = $0.35/hr, need ~3 hrs)
         gateway._cost_tracker.track_training(duration_hours=3.0)
-
         assert gateway.check_budget() is False
-        assert gw_mod._BUDGET_HALT is True
+        assert gateway._budget_halt is True
 
     def test_budget_halt_persists(self, gateway):
-        """Once _BUDGET_HALT is set, check_budget always returns False."""
-        import epsionic.core.gateway as gw_mod
-        gw_mod._BUDGET_HALT = True
+        gateway._budget_halt = True
         assert gateway.check_budget() is False
 
     def test_budget_halt_skips_training_step(self, gateway_with_tools):
-        """_run_chain_step returns halted error for train step."""
-        import epsionic.core.gateway as gw_mod
-        gw_mod._BUDGET_HALT = True
+        gateway_with_tools._budget_halt = True
         from epsionic.core.domain import DOMAINS
-
         ctx = {"domain": "math", "domain_config": DOMAINS["math"]}
         result = gateway_with_tools._run_chain_step("train", ctx)
         assert result.get("halted") is True
         assert "Budget" in result.get("error", "")
 
     def test_budget_halt_skips_expensive_tools_in_run_objective(self, gateway):
-        """run_objective skips train/prepare/evaluate steps when budget exceeded."""
-        import epsionic.core.gateway as gw_mod
-        gw_mod._BUDGET_HALT = True
-
-        # Register a train tool so the brain can find it
+        gateway._budget_halt = True
         gateway.register_tool("train", "mock train", lambda **kw: {"status": "ok"})
         gateway.register_tool("discover", "mock discover", lambda **kw: {"datasets": ["test"]})
-
         result = gateway.run_objective("test halt", max_steps=3)
         for step in result.get("steps", []):
             if step.get("tool") in ("train", "prepare", "evaluate"):
@@ -104,17 +84,11 @@ class TestGateway:
                 assert "Budget" in step.get("error", "")
 
     def test_budget_halt_writes_agent_state(self, gateway):
-        """Budget halt writes agent state record."""
-        import epsionic.core.gateway as gw_mod
-        gw_mod._BUDGET_HALT = False
-
+        gateway._budget_halt = False
         from epsionic.tools.cost_tracker import CostTracker
         gateway._cost_tracker = CostTracker(memory_store=gateway.memory, budget_limit=0.5)
         gateway._cost_tracker.track_training(duration_hours=2.0)
-
         gateway.check_budget()
-
-        # Check agent state was written
         data = gateway.memory.read_agent_state("budget_halt")
         assert data is not None
         assert "cost" in data
