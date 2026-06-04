@@ -56,7 +56,7 @@ class FlowEngine:
 
     def create_flow(self, name: str, description: str = "",
                     triggers: list = None) -> str:
-        flow_id = f"flow_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        flow_id = f"flow_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
         flow = FlowDefinition(
             name=name, description=description, triggers=triggers or [],
         )

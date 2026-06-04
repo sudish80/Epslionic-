@@ -93,7 +93,7 @@ class ModelQuantizer:
                 result = subprocess.run(
                     ["python", "-m", "llama_cpp.convert", str(tmp_model), "--outfile", output_path,
                      "--outtype", quantize.replace("q", "q").upper()],
-                    capture_output=True, text=True, timeout=600,
+                    capture_output=True, text=True, timeout=30,
                 )
                 if result.returncode != 0:
                     return {"success": False, "error": result.stderr[:500]}

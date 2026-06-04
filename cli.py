@@ -307,6 +307,19 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
 
     from fastapi.middleware.cors import CORSMiddleware
 
+    from fastapi import Depends, HTTPException, Security
+    from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+    _api_key = os.environ.get("EPSIONIC_API_KEY", "")
+    _security = HTTPBearer(auto_error=False)
+
+    def _verify_key(credentials: Optional[HTTPAuthorizationCredentials] = Security(_security)):
+        if not _api_key:
+            return True
+        if not credentials or credentials.credentials != _api_key:
+            raise HTTPException(status_code=403, detail="Invalid API key")
+        return True
+
     app = FastAPI(title="Epslionic-Colab Agent API", version=__version__,
                   docs_url="/docs", redoc_url="/redoc")
 
@@ -319,7 +332,7 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
     )
 
     @app.get("/health")
-    def health():
+    def health(auth: bool = Depends(_verify_key)):
         return {
             "status": "ok",
             "version": __version__,
@@ -329,7 +342,7 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
         }
 
     @app.post("/train/{domain}")
-    def train_domain(domain: str):
+    def train_domain(domain: str, auth: bool = Depends(_verify_key)):
         if domain not in DOMAINS:
             raise HTTPException(status_code=400, detail=f"Unknown domain: {domain}")
         cfg = DOMAINS[domain]
@@ -343,35 +356,27 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
         }
 
     @app.get("/experiments")
-    def list_experiments():
+    def list_experiments(auth: bool = Depends(_verify_key)):
         exps = gw.memory.list_experiments()
-        return {
-            "count": len(exps),
-            "experiments": [{'id': e.get('id'), 'name': e.get('name'),
-                            'status': e.get('status')} for e in exps[:20]]
-        }
+        return {"count": len(exps), "experiments": [{'id': e.get('id'), 'name': e.get('name'),
+                    'status': e.get('status'), 'tags': e.get('tags', [])} for e in exps[:50]]}
 
     @app.get("/status")
-    def status():
-        return {
-            "status": gw.state.status,
-            "domain": gw.state.domain,
-            "tools": gw.state.tools_loaded,
-            "sessions": gw.state.sessions_created,
-            "errors": gw.state.errors_encountered,
-            "fixed": gw.state.errors_fixed,
-            "started": gw.state.started_at,
-        }
+    def status(auth: bool = Depends(_verify_key)):
+        return {"status": gw.state.status, "domain": gw.state.domain, "tools": gw.state.tools_loaded,
+                "sessions": gw.state.sessions_created, "errors": gw.state.errors_encountered,
+                "fixed": gw.state.errors_fixed, "started": gw.state.started_at,
+                "budget": gw.check_budget() if hasattr(gw, 'check_budget') else True}
 
     @app.get("/experiments/{exp_id}")
-    def get_experiment(exp_id: str):
+    def get_experiment(exp_id: str, auth: bool = Depends(_verify_key)):
         exp = gw.memory.get_experiment(exp_id)
         if not exp:
             raise HTTPException(status_code=404, detail="Experiment not found")
         return exp
 
     @app.get("/experiments/compare")
-    def compare_experiments(a: str, b: str):
+    def compare_experiments(a: str, b: str, auth: bool = Depends(_verify_key)):
         exp_a = gw.memory.get_experiment(a)
         exp_b = gw.memory.get_experiment(b)
         if not exp_a or not exp_b:
@@ -383,54 +388,8 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
                 diff[k] = {"a": str(va)[:200], "b": str(vb)[:200]}
         return {"experiment_a": a, "experiment_b": b, "differences": diff}
 
-    @app.get("/plugins")
-    def list_plugins():
-        return {
-            "count": len(gw.plugins),
-            "plugins": [{"name": n, "enabled": p.enabled, "hooks": list(p._hooks.keys())} for n, p in gw.plugins.items()]
-        }
-
-    @app.get("/device")
-    def device_info():
-        return {
-            "name": gw.device.name,
-            "backend": gw.device.backend,
-            "vram_gb": gw.device.vram_gb,
-            "batch_recommendation": gw.device.recommended_batch_size(),
-            "quantization": gw.device.recommended_quantization(),
-        }
-
-    @app.post("/experiments/export")
-    def export_experiments():
-        path = gw.memory.export_experiments_csv()
-        return {"path": path, "count": len(gw.memory.list_experiments())}
-
-    @app.post("/jobs")
-    def create_job(job_type: str, params: dict = None, priority: int = 0):
-        job_id = gw.memory.create_job(job_type, params or {}, priority)
-        return {"job_id": job_id, "status": "queued"}
-
-    @app.get("/jobs")
-    def list_jobs(status: str = None, job_type: str = None):
-        jobs = gw.memory.list_jobs(status=status, job_type=job_type)
-        return {"count": len(jobs), "jobs": jobs[:50]}
-
-    @app.get("/jobs/{job_id}")
-    def get_job(job_id: str):
-        job = gw.memory.get_job(job_id)
-        if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
-        return job
-
-    @app.post("/jobs/{job_id}/cancel")
-    def cancel_job(job_id: str):
-        ok = gw.memory.cancel_job(job_id)
-        if not ok:
-            raise HTTPException(status_code=400, detail="Job cannot be cancelled or not found")
-        return {"job_id": job_id, "status": "cancelled"}
-
     @app.get("/experiments/trends")
-    def experiment_trends():
+    def experiment_trends(auth: bool = Depends(_verify_key)):
         exps = gw.memory.list_experiments()
         if not exps:
             return {"experiments": 0, "trends": {}}
@@ -443,20 +402,45 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
             by_domain[d] = by_domain.get(d, 0) + 1
         return {"experiments": len(exps), "successful": successful, "failed": failed,
                 "by_domain": by_domain,
-                "avg_loss": round(sum(e.get("metrics", {}).get("eval_loss", 0) or 0 for e in exps) / max(len(exps), 1), 4)}
+                "avg_loss": round(sum(e.get("metrics", {}).get("eval_loss", 0) or 0 for e in exps) / max(len(exps), 1), 4),
+                "budget_halted": False}
 
-    @app.get("/logs")
-    def get_logs(lines: int = 50):
-        import subprocess
-        try:
-            result = subprocess.run(["tail", "-n", str(lines), str(Path(cfg.logs_dir) / "epsionic.log")],
-                                    capture_output=True, text=True, timeout=5)
-            return {"logs": result.stdout.split("\n")}
-        except Exception:
-            return {"logs": ["Log file not available"]}
+    @app.post("/experiments/export")
+    def export_experiments(auth: bool = Depends(_verify_key)):
+        path = gw.memory.export_experiments_csv()
+        return {"path": path, "count": len(gw.memory.list_experiments())}
+
+    @app.post("/jobs")
+    def create_job(job_type: str, params: dict = None, priority: int = 0, auth: bool = Depends(_verify_key)):
+        job_id = gw.memory.create_job(job_type, params or {}, priority)
+        return {"job_id": job_id, "status": "queued"}
+
+    @app.get("/jobs")
+    def list_jobs(status: str = None, job_type: str = None, auth: bool = Depends(_verify_key)):
+        jobs = gw.memory.list_jobs(status=status, job_type=job_type)
+        return {"count": len(jobs), "jobs": jobs[:50]}
+
+    @app.get("/jobs/{job_id}")
+    def get_job(job_id: str, auth: bool = Depends(_verify_key)):
+        job = gw.memory.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return job
+
+    @app.post("/jobs/{job_id}/cancel")
+    def cancel_job(job_id: str, auth: bool = Depends(_verify_key)):
+        ok = gw.memory.cancel_job(job_id)
+        if not ok:
+            raise HTTPException(status_code=400, detail="Job cannot be cancelled or not found")
+        return {"job_id": job_id, "status": "cancelled"}
+
+    @app.get("/plugins")
+    def list_plugins(auth: bool = Depends(_verify_key)):
+        return {"count": len(gw.plugins), "plugins": [
+            {"name": n, "enabled": p.enabled, "hooks": list(p._hooks.keys())} for n, p in gw.plugins.items()]}
 
     @app.post("/plugins/{name}/toggle")
-    def toggle_plugin(name: str):
+    def toggle_plugin(name: str, auth: bool = Depends(_verify_key)):
         if name not in gw.plugins:
             raise HTTPException(status_code=404, detail=f"Plugin '{name}' not found")
         p = gw.plugins[name]
@@ -465,6 +449,81 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
         else:
             gw._plugin_manager.enable(name)
         return {"name": name, "enabled": not p.enabled}
+
+    @app.get("/device")
+    def device_info(auth: bool = Depends(_verify_key)):
+        return {"name": gw.device.name, "backend": gw.device.backend,
+                "vram_gb": gw.device.vram_gb,
+                "batch_recommendation": gw.device.recommended_batch_size(),
+                "quantization": gw.device.recommended_quantization()}
+
+    @app.get("/logs")
+    def get_logs(lines: int = 50, auth: bool = Depends(_verify_key)):
+        import subprocess
+        try:
+            result = subprocess.run(["tail", "-n", str(lines), str(Path(cfg.logs_dir) / "epsionic.log")],
+                                    capture_output=True, text=True, timeout=5)
+            return {"logs": result.stdout.split("\n")}
+        except Exception:
+            return {"logs": ["Log file not available"]}
+
+    # Registry endpoints
+    @app.get("/registry")
+    def list_registry(auth: bool = Depends(_verify_key)):
+        try:
+            from .tools.model_registry import ModelRegistry
+            reg = ModelRegistry(memory_store=gw.memory)
+            return {"models": reg.list()}
+        except Exception as e:
+            return {"models": [], "error": str(e)}
+
+    @app.get("/registry/{name}")
+    def get_registry_model(name: str, auth: bool = Depends(_verify_key)):
+        try:
+            from .tools.model_registry import ModelRegistry
+            reg = ModelRegistry(memory_store=gw.memory)
+            latest = reg.get_latest(name)
+            if not latest:
+                raise HTTPException(status_code=404, detail=f"Model '{name}' not found")
+            return latest
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # Flow engine endpoints
+    @app.post("/flows")
+    def create_flow(name: str, description: str = "", auth: bool = Depends(_verify_key)):
+        try:
+            from .tools.flow import FlowEngine
+            engine = FlowEngine()
+            fid = engine.create_flow(name, description)
+            return {"flow_id": fid, "status": "created"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get("/flows")
+    def list_flows(auth: bool = Depends(_verify_key)):
+        try:
+            from .tools.flow import FlowEngine
+            engine = FlowEngine()
+            return {"flows": engine.list_flows()}
+        except Exception as e:
+            return {"flows": [], "error": str(e)}
+
+    @app.get("/flows/{flow_id}")
+    def get_flow(flow_id: str, auth: bool = Depends(_verify_key)):
+        try:
+            from .tools.flow import FlowEngine
+            engine = FlowEngine()
+            flow = engine.get_flow(flow_id)
+            if not flow:
+                raise HTTPException(status_code=404, detail="Flow not found")
+            return flow
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
     _echo(f"Starting API server on http://{host}:{port}")
     uvicorn.run(app, host=host, port=port)
@@ -503,6 +562,15 @@ def parse_args(argv: Optional[list] = None) -> argparse.Namespace:
 
     p.add_argument('--no-emoji', action='store_true', help='Strip emoji for CI/terminal compat')
     p.add_argument('--install-completion', action='store_true', help='Install tab-completion for your shell')
+    p.add_argument('--server-api-key', default=None, help='API key for FastAPI auth (env: EPSIONIC_API_KEY)')
+
+    # Flow engine subcommands
+    flow_sub = p.add_argument_group('Flow Engine')
+    flow_sub.add_argument('--flow-list', action='store_true', help='List all flow engine pipelines')
+    flow_sub.add_argument('--flow-create', type=str, default=None, metavar='NAME', help='Create a new flow')
+    flow_sub.add_argument('--flow-run', type=str, default=None, metavar='FLOW_ID', help='Execute a flow')
+    flow_sub.add_argument('--flow-mermaid', type=str, default=None, metavar='FLOW_ID', help='Export flow as Mermaid')
+    flow_sub.add_argument('--flow-export', type=str, default=None, metavar='FLOW_ID', help='Export flow as YAML')
 
     return p.parse_args(argv)
 
@@ -574,6 +642,8 @@ def main(argv: Optional[list] = None) -> int:
         cfg.openai_api_key = args.api_key
     if args.hf_token:
         cfg.huggingface_token = args.hf_token
+    if args.server_api_key:
+        os.environ["EPSIONIC_API_KEY"] = args.server_api_key
 
     errors = cfg.validate()
     if errors:
@@ -611,6 +681,44 @@ def main(argv: Optional[list] = None) -> int:
     gw = build_gateway(cfg)
     _setup_signal_handlers(gw)
     logger.info("Gateway ready — %d tools registered", gw.state.tools_loaded)
+
+    # Flow engine CLI commands
+    if args.flow_list:
+        from .tools.flow import FlowEngine
+        engine = FlowEngine()
+        flows = engine.list_flows()
+        if not flows:
+            _echo("No flows found")
+        else:
+            _make_table("Flow Pipelines", ["ID", "Name", "Nodes", "Description"],
+                        [(f["id"], f["name"], str(f["nodes"]), f.get("description", "")) for f in flows])
+        return 0
+
+    if args.flow_create:
+        from .tools.flow import FlowEngine
+        engine = FlowEngine()
+        fid = engine.create_flow(args.flow_create)
+        _echo(f"Flow created: {fid}")
+        return 0
+
+    if args.flow_run:
+        from .tools.flow import FlowEngine
+        engine = FlowEngine()
+        result = engine.execute(args.flow_run, tool_executor=lambda t, **kw: {"called": t})
+        _status_panel("Flow Execution", f"Success: {result['success']}\nNodes: {len(result['nodes'])}")
+        return 0
+
+    if args.flow_mermaid:
+        from .tools.flow import FlowEngine
+        engine = FlowEngine()
+        _echo(engine.export_mermaid(args.flow_mermaid))
+        return 0
+
+    if args.flow_export:
+        from .tools.flow import FlowEngine
+        engine = FlowEngine()
+        _echo(engine.export_yaml(args.flow_export))
+        return 0
 
     if args.autonomous:
         return cmd_autonomous(gw, continuous=args.continuous)

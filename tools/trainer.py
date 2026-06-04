@@ -102,6 +102,24 @@ class TrainerTool:
             result["trainer_type"] = trainer_type
             result["experiment_id"] = experiment_id
 
+            if result.get("success"):
+                hub_repo = training_args.get("push_to_hub_repo", "")
+                if hub_repo:
+                    hub_result = self.push_to_hub(
+                        repo_id=hub_repo,
+                        model_path=result.get("model_path", ""),
+                        experiment_id=experiment_id,
+                    )
+                    result["hub_push"] = hub_result
+
+                deepspeed_config = training_args.get("deepspeed_config", "")
+                if deepspeed_config:
+                    result["deepspeed"] = self._train_with_deepspeed(
+                        experiment_id, model_name, dataset_dict, training_args, deepspeed_config,
+                    )
+
+                self._try_register_model(result, model_name, experiment_id)
+
             if self.memory:
                 status = "completed" if result.get("success") else "failed"
                 self.memory.update_experiment(
@@ -381,6 +399,41 @@ class TrainerTool:
         except Exception as e:
             logger.error(f"Push to hub failed: {e}")
             return {"success": False, "error": str(e)}
+
+    def _train_with_deepspeed(self, exp_id: str, model_name: str,
+                               dataset_dict: dict, training_args: dict,
+                               config_path: str) -> dict:
+        try:
+            import deepspeed
+            from transformers.deepspeed import HfDeepSpeedConfig
+
+            ds_config = json.loads(Path(config_path).read_text()) if Path(config_path).exists() else {
+                "train_batch_size": training_args.get("batch_size", 2) * training_args.get("gradient_accumulation_steps", 4),
+                "fp16": {"enabled": True},
+                "zero_optimization": {"stage": 2},
+            }
+
+            hf_ds_config = HfDeepSpeedConfig(ds_config)
+            return {"success": True, "config": str(config_path), "zero_stage": ds_config.get("zero_optimization", {}).get("stage", 0)}
+        except ImportError:
+            return {"success": False, "error": "DeepSpeed not installed"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _try_register_model(self, result: dict, model_name: str, experiment_id: str):
+        try:
+            from .model_registry import ModelRegistry
+            reg = ModelRegistry(memory_store=self.memory)
+            reg.register(
+                model_path=result.get("model_path", ""),
+                name=model_name.split("/")[-1],
+                base_model=model_name,
+                experiment_id=experiment_id,
+                metrics=result.get("metrics", {}),
+                tags=[result.get("trainer_type", "sft")],
+            )
+        except Exception as e:
+            logger.debug(f"Model registration skipped: {e}")
 
     def get_tool_description(self) -> dict:
         return {

@@ -23,6 +23,8 @@ from ..utils.device import DeviceManager
 
 logger = logging.getLogger("epsionic.gateway")
 
+_BUDGET_HALT = False
+
 
 @dataclass
 class AgentState:
@@ -71,6 +73,19 @@ class Gateway:
         self._plugin_manager.discover()
         self._plugin_manager.create_example()
         self._plugin_manager.discover()
+
+        self._cost_tracker = None
+        budget = getattr(config, 'budget_limit', 50.0)
+        if budget > 0:
+            try:
+                from ..tools.cost_tracker import CostTracker
+                self._cost_tracker = CostTracker(
+                    memory_store=self.memory,
+                    budget_limit=budget,
+                    cost_file=Path(str(self.config.workspace_root)) / "costs.jsonl",
+                )
+            except Exception:
+                pass
 
         logger.info(f"Gateway initialized — device: {self.device.name}, plugins: {len(self._plugin_manager.plugins)}")
 
@@ -223,12 +238,19 @@ class Gateway:
                 return {"training_config": tc, "prep_result": result}
             return {"training_config": tc}
         if step_name == "train":
+            if not self.check_budget():
+                return {"error": "Budget exceeded", "halted": True}
             tc = ctx.get("training_config", self.config.default_training_config)
             tool = self._tool_registry.get("train")
             if tool:
                 result = tool(experiment_id=ctx.get("experiment_id", ""),
                     model_name=tc.get("model_name"), dataset_dict={"dataset_id": ctx.get("selected_dataset", "")},
                     training_args=tc, objective=ctx.get("objective", ""))
+                if self._cost_tracker:
+                    self._cost_tracker.track_training(
+                        duration_hours=result.get("hours", 1.0),
+                        gpu_type=self.device.name,
+                    )
                 return {"train_result": result}
             return {"train_result": {"status": "queued"}}
         return {}
@@ -251,6 +273,12 @@ class Gateway:
             sr = {"step": step + 1, "tool": action.tool, "reasoning": action.reasoning,
                   "params": action.params, "status": "pending"}
             if action.tool in self._tool_registry:
+                if action.tool in ("train", "prepare", "preference_train", "generate_data", "evaluate"):
+                    if not self.check_budget():
+                        sr["status"], sr["error"] = "skipped", "Budget exceeded - training halted"
+                        result["error"] = "Budget exceeded"
+                        result["steps"].append(sr)
+                        break
                 try:
                     self._run_hooks("before_tool", tool=action.tool, params=action.params)
                     handler = self._tool_registry[action.tool]
@@ -404,6 +432,28 @@ class Gateway:
         self._state_transition("idle")
         self._running = False
         return completed
+
+    def check_budget(self) -> bool:
+        """Return False if over budget (training should halt)."""
+        global _BUDGET_HALT
+        if _BUDGET_HALT:
+            return False
+        if self._cost_tracker and self._cost_tracker.is_over_budget():
+            _BUDGET_HALT = True
+            msg = f"Training halted: budget ${self._cost_tracker.get_session_cost():.2f} exceeds limit"
+            logger.warning(msg)
+            self.memory.write_agent_state("budget_halt", {
+                "cost": self._cost_tracker.get_session_cost(),
+                "limit": self._cost_tracker.budget_limit,
+                "halted_at": datetime.now().isoformat(),
+            })
+            self._run_hooks("on_error", tool="budget", error=msg, step=-1, params={})
+            return False
+        if self._cost_tracker:
+            remaining = self._cost_tracker.get_budget_remaining()
+            if remaining < self._cost_tracker.budget_limit * 0.1:
+                logger.info(f"Budget warning: ${remaining:.2f} remaining")
+        return True
 
     def _log_audit(self, action: str, details: dict = None):
         try:
