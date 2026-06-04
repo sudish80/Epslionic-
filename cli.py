@@ -299,7 +299,7 @@ def cmd_dashboard(gw: Gateway, share: bool = True, port: int = 7860) -> int:
 def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
     try:
         from fastapi import FastAPI, HTTPException
-        from fastapi.responses import JSONResponse
+        from fastapi.responses import JSONResponse, HTMLResponse
         import uvicorn
     except ImportError:
         logger.error("fastapi/uvicorn not installed. Install with: pip install fastapi uvicorn")
@@ -339,6 +339,8 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
             "domain": gw.state.domain or "not set",
             "tools": len(gw._tool_registry),
             "uptime": gw.state.started_at,
+            "schedules": len(gw._schedule),
+            "budget_halted": _BUDGET_HALT if '_BUDGET_HALT' in dir() else False,
         }
 
     @app.post("/train/{domain}")
@@ -450,6 +452,83 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
             gw._plugin_manager.enable(name)
         return {"name": name, "enabled": not p.enabled}
 
+    # Plugin Registry / Marketplace endpoints
+    @app.get("/plugins/registry")
+    def list_plugin_registry(auth: bool = Depends(_verify_key)):
+        try:
+            from .tools.plugin_registry import PluginRegistry
+            reg = PluginRegistry(memory_store=gw.memory)
+            return {"plugins": reg.list_plugins()}
+        except Exception as e:
+            return {"plugins": [], "error": str(e)}
+
+    @app.post("/plugins/install/pypi")
+    def install_plugin_pypi(package: str, name: str = None, auth: bool = Depends(_verify_key)):
+        from .tools.plugin_registry import PluginRegistry
+        reg = PluginRegistry(memory_store=gw.memory)
+        result = reg.install_from_pypi(package, name)
+        return result
+
+    @app.post("/plugins/install/github")
+    def install_plugin_github(repo: str, name: str = None, auth: bool = Depends(_verify_key)):
+        from .tools.plugin_registry import PluginRegistry
+        reg = PluginRegistry(memory_store=gw.memory)
+        result = reg.install_from_github(repo, name)
+        return result
+
+    @app.post("/plugins/install/path")
+    def install_plugin_path(path: str, name: str = None, auth: bool = Depends(_verify_key)):
+        from .tools.plugin_registry import PluginRegistry
+        reg = PluginRegistry(memory_store=gw.memory)
+        result = reg.install_from_path(path, name)
+        return result
+
+    @app.post("/plugins/registry/{name}/enable")
+    def enable_plugin_registry(name: str, auth: bool = Depends(_verify_key)):
+        from .tools.plugin_registry import PluginRegistry
+        reg = PluginRegistry(memory_store=gw.memory)
+        ok = reg.enable(name)
+        return {"success": ok, "name": name}
+
+    @app.post("/plugins/registry/{name}/disable")
+    def disable_plugin_registry(name: str, auth: bool = Depends(_verify_key)):
+        from .tools.plugin_registry import PluginRegistry
+        reg = PluginRegistry(memory_store=gw.memory)
+        ok = reg.disable(name)
+        return {"success": ok, "name": name}
+
+    @app.delete("/plugins/registry/{name}")
+    def uninstall_plugin(name: str, auth: bool = Depends(_verify_key)):
+        from .tools.plugin_registry import PluginRegistry
+        reg = PluginRegistry(memory_store=gw.memory)
+        ok = reg.uninstall(name)
+        return {"success": ok, "name": name}
+
+    # Scheduler endpoints
+    @app.get("/schedules")
+    def list_schedules(auth: bool = Depends(_verify_key)):
+        return {"schedules": gw.list_schedules()}
+
+    @app.post("/schedules")
+    def add_schedule(domain: str, interval_hours: float = 24.0, auth: bool = Depends(_verify_key)):
+        return gw.schedule_training(domain, interval_hours)
+
+    @app.delete("/schedules/{domain}")
+    def remove_schedule(domain: str, auth: bool = Depends(_verify_key)):
+        ok = gw.remove_schedule(domain)
+        return {"success": ok, "domain": domain}
+
+    # State persistence endpoints
+    @app.post("/state/save")
+    def save_state(auth: bool = Depends(_verify_key)):
+        result = gw.memory.save_state()
+        return result
+
+    @app.post("/state/restore")
+    def restore_state(auth: bool = Depends(_verify_key)):
+        result = gw.memory.restore_state()
+        return result
+
     @app.get("/device")
     def device_info(auth: bool = Depends(_verify_key)):
         return {"name": gw.device.name, "backend": gw.device.backend,
@@ -525,6 +604,83 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
+    @app.post("/flows/{flow_id}/trigger")
+    def trigger_flow(flow_id: str, payload: dict = None, auth: bool = Depends(_verify_key)):
+        try:
+            from .tools.flow import FlowEngine
+            engine = FlowEngine()
+            result = engine.trigger_webhook(flow_id, payload or {},
+                                            tool_executor=lambda t, **kw: {"called": t, "params": kw})
+            return {"flow_id": flow_id, "result": result, "status": "triggered"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/flows/{flow_id}/nodes")
+    def add_flow_node(flow_id: str, node_type: str, params: dict = None,
+                      after_node: str = None, auth: bool = Depends(_verify_key)):
+        try:
+            from .tools.flow import FlowEngine
+            engine = FlowEngine()
+            nid = engine.add_node(flow_id, node_type, params, after_node=after_node)
+            return {"node_id": nid, "status": "added"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get("/flows/editor")
+    def flow_editor(auth: bool = Depends(_verify_key)):
+        html = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Epslionic Flow Editor</title>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;height:100vh;display:flex;flex-direction:column}
+#toolbar{background:#1e293b;padding:12px 20px;display:flex;gap:12px;align-items:center;border-bottom:1px solid #334155}
+#toolbar button{padding:8px 16px;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px}
+#toolbar button:hover{background:#2563eb}
+#toolbar select{padding:8px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#e2e8f0;font-size:14px}
+#cy{flex:1;display:flex}
+#panel{width:320px;background:#1e293b;padding:16px;border-left:1px solid #334155;overflow-y:auto;display:flex;flex-direction:column;gap:12px}
+#panel input,#panel textarea{width:100%;padding:8px;background:#0f172a;border:1px solid #475569;border-radius:4px;color:#e2e8f0;font-size:13px}
+#panel label{font-size:12px;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px}
+.node-label{font-size:11px;text-align:center;padding:2px 6px;background:#1e293b;border-radius:4px;color:#e2e8f0;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+</style></head>
+<body>
+<div id="toolbar">
+<strong style="color:#3b82f6;font-size:16px">Epslionic Flow Editor</strong>
+<select id="nodeType"><option value="train">Train</option><option value="discover">Discover</option><option value="evaluate">Evaluate</option><option value="preference_train">Preference Train</option><option value="merge_models">Merge</option><option value="generate_data">Generate Data</option><option value="quantize">Quantize</option></select>
+<button onclick="addNode()">+ Add Node</button>
+<button onclick="saveFlow()">💾 Save</button>
+<button onclick="runFlow()">▶ Run</button>
+<button onclick="loadFlows()">📂 Load</button>
+<span id="flowLabel" style="color:#94a3b8;font-size:13px">No flow loaded</span>
+</div>
+<div id="cy"></div>
+<div id="panel">
+<label>Flow Name</label><input id="flowName" placeholder="my-training-flow" value="untitled">
+<label>Node ID</label><input id="nodeId" placeholder="auto">
+<label>Params (JSON)</label><textarea id="nodeParams" rows="4" placeholder='{"model":"mistral-7b"}'></textarea>
+<label>Retry on fail</label><input id="retryCount" type="number" value="0" min="0">
+</div>
+<script>
+let cy, currentFlowId = null, nodes = [], edges = [];
+const API = window.location.origin;
+document.addEventListener('DOMContentLoaded',()=>{
+cy=cytoscape({container:document.getElementById('cy'),style:[{selector:'node',style:{'background-color':'#3b82f6',label:'data(label)','text-valign':'bottom','color':'#e2e8f0','font-size':'11px','width':60,'height':60,'shape':'round-rectangle','padding':'4px'}},{selector:'edge',style:{'width':2,'line-color':'#475569','target-arrow-color':'#475569','target-arrow-shape':'triangle','curve-style':'bezier','arrow-scale':1.2}},{selector:':selected',style:{'border-width':3,'border-color':'#f59e0b'}}],layout:{name:'grid',rows:1},wheelSensitivity:.3});
+cy.on('tap','node',function(e){const n=e.target;document.getElementById('nodeId').value=n.id();document.getElementById('nodeParams').value=JSON.stringify(n.data('params')||{},null,2);document.getElementById('retryCount').value=n.data('retry')||0});
+cy.on('dragfree','node',function(){positionNodes()});
+});
+function addNode(){const t=document.getElementById('nodeType').value;const p=document.getElementById('nodeParams').value;const params=p?JSON.parse(p):{};const retry=parseInt(document.getElementById('retryCount').value)||0;const nid=document.getElementById('nodeId').value||'node_'+(nodes.length+1);const label=t.charAt(0).toUpperCase()+t.slice(1).replace('_',' ');nodes.push({id:nid,type:t,params,retry_on_fail:retry});cy.add({group:'nodes',data:{id:nid,label,type:t,params,retry}});positionNodes();document.getElementById('nodeId').value='';}
+function positionNodes(){const n=cy.nodes();const cols=Math.ceil(Math.sqrt(n.length));n.forEach((node,i)=>{const col=i%cols,row=Math.floor(i/cols);node.position({x:100+col*160,y:80+row*120})});cy.layout({name:'preset',fit:true,padding:30}).run();}
+function connectNodes(srcId,tgtId){edges.push({source:srcId,target:tgtId});cy.add({group:'edges',data:{source:srcId,target:tgtId,id:'e_'+srcId+'_'+tgtId}});}
+function saveFlow(){const data={name:document.getElementById('flowName').value||'untitled',nodes:nodes.map(n=>({...n,connections:{output:edges.find(e=>e.source===n.id)?edges.find(e=>e.source===n.id).target:null}}))};fetch(API+'/flows',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:data.name})}).then(r=>r.json()).then(res=>{currentFlowId=res.flow_id;document.getElementById('flowLabel').textContent='Flow: '+res.flow_id;data.nodes.forEach((n,i,arr)=>{const after=i>0?arr[i-1].id:null;fetch(API+'/flows/'+currentFlowId+'/nodes?node_type='+n.type+'&after_node='+(after||''),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({params:n.params||{}})}).catch(e=>console.error(e))});alert('Flow saved: '+res.flow_id)}).catch(e=>alert('Save failed: '+e));}
+function loadFlows(){fetch(API+'/flows').then(r=>r.json()).then(d=>{const ids=d.flows.map(f=>f.id).join('\n');const id=prompt('Available flows:\n'+ids+'\n\nEnter Flow ID:');if(!id)return;fetch(API+'/flows/'+id).then(r=>r.json()).then(flow=>{currentFlowId=id;document.getElementById('flowLabel').textContent='Flow: '+id;document.getElementById('flowName').value=flow.name||id;nodes=[];edges=[];cy.elements().remove();(flow.nodes||[]).forEach(n=>{nodes.push(n);cy.add({group:'nodes',data:{id:n.id,label:(n.type||'?').charAt(0).toUpperCase()+(n.type||'?').slice(1),type:n.type,params:n.params,retry:n.retry_on_fail}});if(n.connections&&n.connections.output){const tgt=n.connections.output;edges.push({source:n.id,target:tgt});cy.add({group:'edges',data:{source:n.id,target:tgt,id:'e_'+n.id+'_'+tgt}});}});positionNodes()})})}
+function runFlow(){if(!currentFlowId){alert('Save or load a flow first');return}fetch(API+'/flows/'+currentFlowId+'/trigger',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.json()).then(r=>{const ok=r.result&&r.result.success?'✅ Success':'❌ Failed';alert('Run '+currentFlowId+': '+ok+'\nCheck API response for details')}).catch(e=>alert('Run failed: '+e));}
+</script></body></html>"""
+        return HTMLResponse(content=html)
+
     _echo(f"Starting API server on http://{host}:{port}")
     uvicorn.run(app, host=host, port=port)
     return 0
@@ -571,6 +727,21 @@ def parse_args(argv: Optional[list] = None) -> argparse.Namespace:
     flow_sub.add_argument('--flow-run', type=str, default=None, metavar='FLOW_ID', help='Execute a flow')
     flow_sub.add_argument('--flow-mermaid', type=str, default=None, metavar='FLOW_ID', help='Export flow as Mermaid')
     flow_sub.add_argument('--flow-export', type=str, default=None, metavar='FLOW_ID', help='Export flow as YAML')
+
+    # Plugin registry subcommands
+    plugin_sub = p.add_argument_group('Plugin Registry')
+    plugin_sub.add_argument('--plugin-list', action='store_true', help='List all registered plugins')
+    plugin_sub.add_argument('--plugin-install', type=str, default=None, metavar='PYPI_PKG', help='Install plugin from PyPI')
+    plugin_sub.add_argument('--plugin-github', type=str, default=None, metavar='REPO_URL', help='Install plugin from GitHub')
+    plugin_sub.add_argument('--plugin-disable', type=str, default=None, metavar='NAME', help='Disable a plugin')
+    plugin_sub.add_argument('--plugin-enable', type=str, default=None, metavar='NAME', help='Enable a plugin')
+    plugin_sub.add_argument('--plugin-uninstall', type=str, default=None, metavar='NAME', help='Uninstall a plugin')
+
+    # Scheduler subcommands
+    sched_sub = p.add_argument_group('Scheduler')
+    sched_sub.add_argument('--schedule-list', action='store_true', help='List scheduled training jobs')
+    sched_sub.add_argument('--schedule-add', type=str, default=None, metavar='DOMAIN', help='Schedule recurring training')
+    sched_sub.add_argument('--schedule-interval', type=float, default=24.0, help='Interval in hours (default: 24)')
 
     return p.parse_args(argv)
 
@@ -718,6 +889,75 @@ def main(argv: Optional[list] = None) -> int:
         from .tools.flow import FlowEngine
         engine = FlowEngine()
         _echo(engine.export_yaml(args.flow_export))
+        return 0
+
+    # Plugin registry CLI commands
+    if args.plugin_list:
+        from .tools.plugin_registry import PluginRegistry
+        reg = PluginRegistry()
+        reg.discover_local()
+        plugins = reg.list_plugins()
+        if not plugins:
+            _echo("No plugins registered")
+        else:
+            _make_table("Plugin Registry", ["Name", "Source", "Enabled", "Description"],
+                        [(p["name"], p["source"], "Yes" if p.get("enabled") else "No", p.get("description", "")) for p in plugins])
+        return 0
+
+    if args.plugin_install:
+        from .tools.plugin_registry import PluginRegistry
+        reg = PluginRegistry()
+        result = reg.install_from_pypi(args.plugin_install)
+        if result.get("success"):
+            _echo(f"Installed plugin: {result['plugin']}")
+        else:
+            _echo(f"Failed: {result.get('error', 'unknown')}")
+        return 0
+
+    if args.plugin_github:
+        from .tools.plugin_registry import PluginRegistry
+        reg = PluginRegistry()
+        result = reg.install_from_github(args.plugin_github)
+        if result.get("success"):
+            _echo(f"Installed plugin from GitHub: {result['plugin']}")
+        else:
+            _echo(f"Failed: {result.get('error', 'unknown')}")
+        return 0
+
+    if args.plugin_disable:
+        from .tools.plugin_registry import PluginRegistry
+        reg = PluginRegistry()
+        ok = reg.disable(args.plugin_disable)
+        _echo(f"Plugin '{args.plugin_disable}' disabled: {ok}")
+        return 0
+
+    if args.plugin_enable:
+        from .tools.plugin_registry import PluginRegistry
+        reg = PluginRegistry()
+        ok = reg.enable(args.plugin_enable)
+        _echo(f"Plugin '{args.plugin_enable}' enabled: {ok}")
+        return 0
+
+    if args.plugin_uninstall:
+        from .tools.plugin_registry import PluginRegistry
+        reg = PluginRegistry()
+        ok = reg.uninstall(args.plugin_uninstall)
+        _echo(f"Plugin '{args.plugin_uninstall}' uninstalled: {ok}")
+        return 0
+
+    # Scheduler CLI commands
+    if args.schedule_list:
+        schedules = gw.list_schedules()
+        if not schedules:
+            _echo("No scheduled training jobs")
+        else:
+            _make_table("Scheduled Training", ["Domain", "Interval (h)", "Last Run", "Enabled"],
+                        [(s["domain"], str(s["interval_hours"]), s.get("last_run", "never")[:19], "Yes" if s.get("enabled") else "No") for s in schedules])
+        return 0
+
+    if args.schedule_add:
+        result = gw.schedule_training(args.schedule_add, args.schedule_interval)
+        _echo(f"Scheduled: {result['domain']} every {result['interval_hours']}h")
         return 0
 
     if args.autonomous:

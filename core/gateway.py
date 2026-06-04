@@ -87,6 +87,11 @@ class Gateway:
             except Exception:
                 pass
 
+        # Scheduler for recurring training
+        self._scheduler_thread = None
+        self._scheduler_running = False
+        self._schedule = []  # list of {"domain": str, "interval_hours": float, "last_run": str, "enabled": bool}
+
         logger.info(f"Gateway initialized — device: {self.device.name}, plugins: {len(self._plugin_manager.plugins)}")
 
     # ── Plugin integration ──────────────────────────────────────────────
@@ -461,7 +466,64 @@ class Gateway:
         except Exception:
             pass
 
+    # ── Scheduler  ───────────────────────────────────────────────────────
+
+    def schedule_training(self, domain: str, interval_hours: float = 24.0):
+        """Schedule recurring training for a domain."""
+        self._schedule.append({
+            "domain": domain, "interval_hours": interval_hours,
+            "last_run": "", "enabled": True,
+        })
+        if not self._scheduler_running:
+            self._start_scheduler()
+        self._log_audit("schedule_added", {"domain": domain, "interval_hours": interval_hours})
+        return {"success": True, "domain": domain, "interval_hours": interval_hours}
+
+    def list_schedules(self) -> list:
+        return list(self._schedule)
+
+    def remove_schedule(self, domain: str) -> bool:
+        before = len(self._schedule)
+        self._schedule[:] = [s for s in self._schedule if s["domain"] != domain]
+        return len(self._schedule) < before
+
+    def _start_scheduler(self):
+        """Start background thread that checks and executes scheduled training."""
+        self._scheduler_running = True
+
+        def _loop():
+            while self._scheduler_running:
+                try:
+                    now = datetime.now()
+                    for sched in self._schedule:
+                        if not sched["enabled"]:
+                            continue
+                        last = sched.get("last_run", "")
+                        if not last:
+                            sched["last_run"] = now.isoformat()
+                            continue
+                        try:
+                            last_dt = datetime.fromisoformat(last)
+                        except Exception:
+                            last_dt = now
+                        elapsed = (now - last_dt).total_seconds() / 3600
+                        if elapsed >= sched["interval_hours"]:
+                            domain_key = sched["domain"]
+                            domain_config = DOMAINS.get(domain_key)
+                            if domain_config:
+                                logger.info(f"Scheduled training: {domain_key}")
+                                self.run_domain(domain_key, domain_config)
+                                sched["last_run"] = datetime.now().isoformat()
+                except Exception as e:
+                    logger.error(f"Scheduler error: {e}")
+                time.sleep(60)  # Check every 60s
+
+        self._scheduler_thread = threading.Thread(target=_loop, daemon=True)
+        self._scheduler_thread.start()
+        logger.info("Scheduler started with %d schedules", len(self._schedule))
+
     def shutdown(self):
+        self._scheduler_running = False
         self._log_audit("shutdown", {"status": self.state.status, "domain": self.state.domain, "tools": self.state.tools_loaded})
         self._plugin_manager.run_hook("on_shutdown")
         self.heartbeat.stop()

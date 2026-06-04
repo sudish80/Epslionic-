@@ -88,6 +88,17 @@ class FlowEngine:
         path.write_text(json.dumps(flow_data, indent=2))
         return node_id
 
+    def trigger_webhook(self, flow_id: str, payload: dict = None,
+                         tool_executor: Callable = None) -> dict:
+        """Execute a flow triggered by an external webhook with payload injection."""
+        flow = self.get_flow(flow_id)
+        if not flow:
+            raise FlowError(f"Flow {flow_id} not found")
+        ctx = dict(payload or {})
+        ctx["trigger"] = "webhook"
+        ctx["triggered_at"] = datetime.now().isoformat()
+        return self.execute(flow_id, tool_executor=tool_executor, context=ctx)
+
     def execute(self, flow_id: str, tool_executor: Callable = None,
                 context: dict = None) -> dict:
         path = self.flows_dir / f"{flow_id}.json"

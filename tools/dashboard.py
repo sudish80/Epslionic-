@@ -312,6 +312,195 @@ def make_ui(memory, gateway=None, queue=None):
     return ui
 
 
+# ---- A/B Experiment Comparison ----
+
+def load_ab_comparison(memory, exp_a_id: str, exp_b_id: str) -> str:
+    exps = memory.list_experiments()
+    exp_a = next((e for e in exps if e.get("id") == exp_a_id or e.get("name") == exp_a_id), None)
+    exp_b = next((e for e in exps if e.get("id") == exp_b_id or e.get("name") == exp_b_id), None)
+    if not exp_a or not exp_b:
+        return "One or both experiments not found. Check experiment names/IDs from the Experiments tab."
+    lines = ["## A/B Experiment Comparison", ""]
+    lines.append(f"### Experiment A: {exp_a.get('name', '?')} ({exp_a.get('id', '?')})")
+    lines.append(f"**Status:** {exp_a.get('status', '?')} | **Created:** {_fmt_time(exp_a.get('created_at', ''))}")
+    lines.append(f"**Config:** {_safe_json(exp_a.get('config', {}))}")
+    lines.append(f"**Metrics:** {_safe_json(exp_a.get('metrics', {}))}")
+    lines.append("")
+    lines.append(f"### Experiment B: {exp_b.get('name', '?')} ({exp_b.get('id', '?')})")
+    lines.append(f"**Status:** {exp_b.get('status', '?')} | **Created:** {_fmt_time(exp_b.get('created_at', ''))}")
+    lines.append(f"**Config:** {_safe_json(exp_b.get('config', {}))}")
+    lines.append(f"**Metrics:** {_safe_json(exp_b.get('metrics', {}))}")
+    lines.append("")
+    # Diff table
+    lines.append("### Differences")
+    lines.append("| Field | A | B | Diff |")
+    lines.append("|---|---|---|---|")
+    metrics_a = exp_a.get("metrics", {}) or {}
+    metrics_b = exp_b.get("metrics", {}) or {}
+    all_metrics = set(list(metrics_a.keys()) + list(metrics_b.keys()))
+    for k in sorted(all_metrics):
+        va = metrics_a.get(k, "N/A")
+        vb = metrics_b.get(k, "N/A")
+        diff = ""
+        if isinstance(va, (int, float)) and isinstance(vb, (int, float)):
+            d = va - vb
+            sign = "+" if d > 0 else ""
+            diff = f"{sign}{d:.4g}"
+        lines.append(f"| {k} | {va} | {vb} | {diff} |")
+    config_a = exp_a.get("config", {}) or {}
+    config_b = exp_b.get("config", {}) or {}
+    if isinstance(config_a, dict) and isinstance(config_b, dict):
+        for k in set(list(config_a.keys()) + list(config_b.keys())):
+            if config_a.get(k) != config_b.get(k):
+                lines.append(f"| config.{k} | {config_a.get(k, 'N/A')} | {config_b.get(k, 'N/A')} | different |")
+    lines.append("")
+    lines.append(f"_Compared at: {datetime.now():%H:%M:%S}_")
+    return "\n".join(lines)
+
+
+# ---- Budget Status ----
+
+def load_budget_status(memory, gateway=None) -> str:
+    budget_data = memory.read_agent_state("budget_halt") or {}
+    lines = ["## Budget Status", ""]
+    if budget_data:
+        lines.append("### ⚠ Budget Was Halted")
+        lines.append(f"- **Cost at halt:** ${budget_data.get('cost', 0):.2f}")
+        lines.append(f"- **Budget limit:** ${budget_data.get('limit', 0):.2f}")
+        lines.append(f"- **Halted at:** {budget_data.get('halted_at', 'unknown')}")
+        lines.append("")
+    else:
+        lines.append("No budget halt events recorded.")
+    # Show cost tracker summary if available
+    if gateway and hasattr(gateway, '_cost_tracker') and gateway._cost_tracker:
+        ct = gateway._cost_tracker
+        remaining = ct.get_budget_remaining()
+        pct = (remaining / ct.budget_limit * 100) if ct.budget_limit > 0 else 100
+        lines.append("### Current Budget")
+        lines.append(f"- **Session cost:** ${ct.get_session_cost():.2f}")
+        lines.append(f"- **Total cost:** ${ct.get_total_cost():.2f}")
+        lines.append(f"- **Remaining:** ${remaining:.2f} ({pct:.1f}%)")
+        lines.append(f"- **GPU:** {ct.gpu_type or 'auto-detected'}")
+        lines.append(f"- **Over budget:** {'Yes 🚫' if ct.is_over_budget() else 'No ✅'}")
+        if pct < 10:
+            lines.append("")
+            lines.append("🚨 **WARNING:** Less than 10% of budget remaining!")
+    else:
+        lines.append("Cost tracker not initialized.")
+    lines.append("")
+    lines.append(f"_Last refreshed: {datetime.now():%H:%M:%S}_")
+    return "\n".join(lines)
+
+
+def make_ui(memory, gateway=None, queue=None):
+    """Construct the Gradio Blocks UI."""
+    with gr.Blocks(
+        title="Epslionic-Colab Dashboard",
+        theme=gr.themes.Soft(primary_hue="blue", secondary_hue="indigo"),
+        css=".refresh-btn { min-width: 140px; } footer { display: none !important; }",
+    ) as ui:
+        gr.Markdown("# Epslionic-Colab Dashboard")
+        gr.Markdown("Overview of training experiments, datasets, errors, and heartbeat.")
+
+        with gr.Tabs() as tabs:
+            # ---- Tab 1: Status ----
+            with gr.Tab("Status"):
+                status_out = gr.Markdown(load_status(memory))
+                status_refresh = gr.Button("Refresh Status", variant="secondary", elem_classes="refresh-btn")
+                status_refresh.click(fn=lambda: load_status(memory), outputs=status_out)
+
+            # ---- Tab 2: Experiments ----
+            with gr.Tab("Experiments"):
+                exp_out = gr.Markdown(load_experiments(memory))
+                exp_refresh = gr.Button("Refresh Experiments", variant="secondary", elem_classes="refresh-btn")
+                exp_refresh.click(fn=lambda: load_experiments(memory), outputs=exp_out)
+
+            # ---- Tab 3: Datasets ----
+            with gr.Tab("Datasets"):
+                ds_out = gr.Markdown(load_datasets(memory))
+                ds_refresh = gr.Button("Refresh Datasets", variant="secondary", elem_classes="refresh-btn")
+                ds_refresh.click(fn=lambda: load_datasets(memory), outputs=ds_out)
+
+            # ---- Tab 4: Errors ----
+            with gr.Tab("Errors"):
+                err_out = gr.Markdown(load_errors(memory))
+                err_refresh = gr.Button("Refresh Errors", variant="secondary", elem_classes="refresh-btn")
+                err_refresh.click(fn=lambda: load_errors(memory), outputs=err_out)
+
+            # ---- Tab 5: Heartbeat ----
+            with gr.Tab("Heartbeat"):
+                hb_out = gr.Markdown(load_heartbeat(memory))
+                hb_refresh = gr.Button("Refresh Heartbeat", variant="secondary", elem_classes="refresh-btn")
+                hb_refresh.click(fn=lambda: load_heartbeat(memory), outputs=hb_out)
+
+            # ---- Tab 6: A/B Comparison ----
+            with gr.Tab("A/B Compare"):
+                gr.Markdown("## A/B Experiment Comparison\nCompare two experiments side-by-side.")
+                with gr.Row():
+                    ab_a = gr.Textbox(label="Experiment A (ID or name)", placeholder="exp_math_20240101_120000")
+                    ab_b = gr.Textbox(label="Experiment B (ID or name)", placeholder="exp_code_20240102_120000")
+                ab_btn = gr.Button("Compare", variant="primary")
+                ab_out = gr.Markdown("Enter two experiment IDs/names and click Compare.")
+                ab_btn.click(fn=lambda a, b: load_ab_comparison(memory, a, b), inputs=[ab_a, ab_b], outputs=ab_out)
+
+            # ---- Tab 7: Budget ----
+            with gr.Tab("Budget"):
+                budget_out = gr.Markdown(load_budget_status(memory, gateway))
+                budget_refresh = gr.Button("Refresh Budget", variant="secondary", elem_classes="refresh-btn")
+                budget_refresh.click(fn=lambda: load_budget_status(memory, gateway), outputs=budget_out)
+
+            # ---- Tab 8: Control ----
+            with gr.Tab("Control"):
+                gr.Markdown("## Control Panel\n\nLaunch training or run commands from the dashboard.")
+
+                with gr.Row():
+                    domain_dd = gr.Dropdown(
+                        choices=["math","code","medical","legal","creative","science","finance","chat","general","custom"],
+                        value="math", label="Domain", info="Select a domain to train on"
+                    )
+                    launch_btn = gr.Button("Launch Domain Training", variant="primary", scale=2)
+
+                control_out = gr.Markdown("Ready to launch training.")
+
+                launch_btn.click(
+                    fn=lambda d: run_action(memory, gateway, "domain", json.dumps({"domain_key": d})),
+                    inputs=domain_dd, outputs=control_out
+                )
+
+                gr.Markdown("---")
+                gr.Markdown("### Quick Status")
+
+                with gr.Row():
+                    quick_status = gr.Button("Refresh All Stats")
+                    quick_errors = gr.Button("Check Errors")
+
+                quick_out = gr.Markdown("_Click a button above._")
+
+                quick_status.click(fn=lambda: load_status(memory), outputs=quick_out)
+                quick_errors.click(fn=lambda: load_errors(memory), outputs=quick_out)
+
+                gr.Markdown("---")
+                gr.Markdown("### Run Custom Command")
+                cmd_text = gr.Textbox(label="Command", placeholder="e.g., discovery datasets for math reasoning")
+                cmd_btn = gr.Button("Execute", variant="secondary")
+                cmd_out = gr.Markdown("")
+                if queue is not None:
+                    cmd_btn.click(
+                        fn=lambda c: queue.put(c) or f"Sent to queue: {c}",
+                        inputs=cmd_text, outputs=cmd_out
+                    )
+                else:
+                    cmd_btn.click(fn=lambda: "Queue not available (run with gateway)", outputs=cmd_out)
+
+        gr.Markdown(
+            "---\n"
+            f"Epslionic-Colab Dashboard | "
+            f"Updated: {datetime.now():%H:%M:%S}"
+        )
+
+    return ui
+
+
 def serve(memory, gateway=None, share=True, port=7860, queue=None):
     """Launch the Gradio dashboard. Returns the Gradio app."""
     if gr is None:

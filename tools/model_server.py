@@ -1,5 +1,5 @@
-"""Production Model Serving — vLLM / TGI integration.
-Deploys trained models as OpenAI-compatible API endpoints."""
+"""Production Model Serving — vLLM / TGI / Ollama / OpenAI proxy.
+Deploys trained models as OpenAI-compatible API endpoints with multi-provider support."""
 
 import json
 import logging
@@ -13,13 +13,39 @@ logger = logging.getLogger("epsionic.tool.model_server")
 
 
 class ModelServer:
-    """Serve trained models via vLLM with OpenAI-compatible API."""
+    """Serve trained models via vLLM, TGI, Ollama, or proxy through OpenAI with unified API."""
 
     def __init__(self, config: dict = None):
         self.config = config or {}
         self._process = None
         self._endpoint_url = None
         self._running = False
+        self._provider = None
+
+    def deploy(self, model_path: str, provider: str = "auto", port: int = 8000,
+               gpu_memory_utilization: float = 0.9, max_model_len: int = 4096,
+               api_base: str = None, api_key: str = None) -> dict:
+        """Auto-select provider based on availability and user preference."""
+        provider = provider.lower() if provider else "auto"
+        if provider == "vllm":
+            return self.deploy_vllm(model_path, port, gpu_memory_utilization, max_model_len)
+        elif provider == "transformers":
+            return self.deploy_transformers(model_path, port)
+        elif provider == "tgi":
+            return self.deploy_tgi(model_path, port)
+        elif provider == "ollama":
+            return self.deploy_ollama(model_path, port)
+        elif provider == "openai":
+            return self.deploy_openai_proxy(model_path, api_base=api_base, api_key=api_key)
+        # Auto-detect
+        for p in ["vllm", "tgi", "ollama"]:
+            try:
+                result = getattr(self, f"deploy_{p}")(model_path, port)
+                if result.get("success"):
+                    return result
+            except Exception:
+                continue
+        return self.deploy_transformers(model_path, port)
 
     def deploy_vllm(self, model_path: str, port: int = 8000,
                     gpu_memory_utilization: float = 0.9,
@@ -42,6 +68,7 @@ class ModelServer:
             self._process = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             self._endpoint_url = f"http://localhost:{port}/v1"
             self._running = True
+            self._provider = "vllm"
 
             def _monitor():
                 time.sleep(15)
@@ -52,10 +79,71 @@ class ModelServer:
                     self._process = None
 
             threading.Thread(target=_monitor, daemon=True).start()
-            return {"success": True, "endpoint": self._endpoint_url, "model": model_path, "port": port}
+            return {"success": True, "endpoint": self._endpoint_url, "provider": "vllm",
+                    "model": model_path, "port": port}
         except Exception as e:
             logger.error(f"vLLM deploy failed: {e}")
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": str(e), "provider": "vllm"}
+
+    def deploy_tgi(self, model_path: str, port: int = 8000) -> dict:
+        """Deploy using HuggingFace TGI (text-generation-inference)."""
+        try:
+            import subprocess
+            cmd = [
+                "text-generation-launcher",
+                "--model-id", model_path,
+                "--port", str(port),
+                "--max-input-length", "2048",
+                "--max-total-tokens", "4096",
+                "--trust-remote-code",
+            ]
+            self._process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self._endpoint_url = f"http://localhost:{port}"
+            self._running = True
+            self._provider = "tgi"
+            return {"success": True, "endpoint": self._endpoint_url, "provider": "tgi",
+                    "model": model_path, "port": port}
+        except Exception as e:
+            logger.warning(f"TGI deploy failed (may not be installed): {e}")
+            return {"success": False, "error": str(e), "provider": "tgi"}
+
+    def deploy_ollama(self, model_path: str, port: int = 8000) -> dict:
+        """Use Ollama to serve a model from its library or a local GGUF."""
+        try:
+            import subprocess, shutil
+            ollama_path = shutil.which("ollama")
+            if not ollama_path:
+                return {"success": False, "error": "Ollama not found in PATH", "provider": "ollama"}
+            # If it's a local file, create a Modelfile
+            model_name = Path(model_path).stem if Path(model_path).exists() else model_path
+            if Path(model_path).exists():
+                modelfile = f"FROM {model_path}\n"
+                modelfile_path = Path(model_path).parent / "Modelfile"
+                modelfile_path.write_text(modelfile)
+                subprocess.run([ollama_path, "create", model_name, "-f", str(modelfile_path)],
+                               capture_output=True, timeout=300)
+            # Run ollama serve in background if not running
+            self._process = subprocess.Popen([ollama_path, "serve"],
+                                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            time.sleep(3)
+            self._endpoint_url = f"http://localhost:11434"
+            self._running = True
+            self._provider = "ollama"
+            return {"success": True, "endpoint": self._endpoint_url, "provider": "ollama",
+                    "model": model_name, "port": 11434}
+        except Exception as e:
+            logger.warning(f"Ollama deploy failed: {e}")
+            return {"success": False, "error": str(e), "provider": "ollama"}
+
+    def deploy_openai_proxy(self, model_path: str, api_base: str = None,
+                            api_key: str = None) -> dict:
+        """Proxy through an existing OpenAI-compatible endpoint."""
+        self._endpoint_url = api_base or os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1")
+        self._running = True
+        self._provider = "openai"
+        self.config["openai_api_key"] = api_key or os.environ.get("OPENAI_API_KEY", "")
+        return {"success": True, "endpoint": self._endpoint_url, "provider": "openai",
+                "model": model_path}
 
     def deploy_transformers(self, model_path: str, port: int = 8001) -> dict:
         """Deploy using a lightweight FastAPI + Transformers server."""
@@ -126,7 +214,9 @@ class ModelServer:
         endpoint = f"http://localhost:{port}"
         self._endpoint_url = endpoint
         self._running = True
-        return {"success": True, "endpoint": endpoint, "model": model_path, "port": port}
+        self._provider = "transformers"
+        return {"success": True, "endpoint": endpoint, "provider": "transformers",
+                "model": model_path, "port": port}
 
     def stop(self):
         if self._process:
@@ -134,6 +224,7 @@ class ModelServer:
             self._process = None
         self._running = False
         self._endpoint_url = None
+        self._provider = None
 
     @property
     def is_running(self) -> bool:
@@ -143,11 +234,24 @@ class ModelServer:
     def endpoint(self) -> Optional[str]:
         return self._endpoint_url
 
+    @property
+    def provider(self) -> Optional[str]:
+        return self._provider
+
     def get_tool_description(self) -> dict:
         return {
+            "deploy": {"description": "Auto-deploy model with best available provider",
+                "parameters": {"model_path": "Model path", "provider": "auto|vllm|tgi|ollama|openai|transformers",
+                    "port": "Server port"}},
             "deploy_vllm": {"description": "Deploy model as OpenAI-compatible API via vLLM",
                 "parameters": {"model_path": "Model path", "port": "Server port", "gpu_memory_utilization": "0.0-1.0"}},
             "deploy_transformers": {"description": "Deploy model as FastAPI + Transformers server",
                 "parameters": {"model_path": "Model path", "port": "Server port"}},
+            "deploy_tgi": {"description": "Deploy via HuggingFace TGI",
+                "parameters": {"model_path": "Model path", "port": "Server port"}},
+            "deploy_ollama": {"description": "Deploy via Ollama (local GGUF/models)",
+                "parameters": {"model_path": "Model path", "port": "Server port"}},
+            "deploy_openai_proxy": {"description": "Proxy through existing OpenAI-compatible endpoint",
+                "parameters": {"model_path": "Model name", "api_base": "API base URL", "api_key": "API key"}},
             "stop": {"description": "Stop the running model server"},
         }

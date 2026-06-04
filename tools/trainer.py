@@ -400,21 +400,123 @@ class TrainerTool:
             logger.error(f"Push to hub failed: {e}")
             return {"success": False, "error": str(e)}
 
+    def _auto_detect_gpu_topology(self) -> dict:
+        """Auto-detect GPU count, names, VRAM, and interconnect topology."""
+        info = {"gpu_count": 0, "gpu_names": [], "total_vram_gb": 0, "nvlink": False, "recommended_zero_stage": 2}
+        try:
+            import subprocess, re
+            # nvidia-smi for GPU details
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name,memory.total,index", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0:
+                lines = [l.strip() for l in result.stdout.strip().split("\n") if l.strip()]
+                info["gpu_count"] = len(lines)
+                for line in lines:
+                    parts = [p.strip() for p in line.split(",")]
+                    if len(parts) >= 2:
+                        info["gpu_names"].append(parts[0])
+                        try:
+                            info["total_vram_gb"] += float(parts[1]) / 1024
+                        except ValueError:
+                            pass
+            # Check NVLink
+            nvlink = subprocess.run(["nvidia-smi", "nvlink", "--status"], capture_output=True, text=True, timeout=5)
+            info["nvlink"] = "NVLV" in nvlink.stdout or "Bridge" in nvlink.stdout
+
+            # Recommend ZeRO stage based on GPU count & VRAM
+            if info["gpu_count"] >= 8 and info["total_vram_gb"] >= 160:
+                info["recommended_zero_stage"] = 3
+            elif info["gpu_count"] >= 4 and info["total_vram_gb"] >= 80:
+                info["recommended_zero_stage"] = 3 if info["nvlink"] else 2
+            elif info["gpu_count"] >= 2:
+                info["recommended_zero_stage"] = 2
+            else:
+                info["recommended_zero_stage"] = 0  # DDP (single GPU or no special config)
+        except Exception:
+            pass
+        return info
+
+    def _build_deepspeed_config(self, training_args: dict) -> dict:
+        """Build an optimized DeepSpeed config based on GPU topology and training args."""
+        topology = self._auto_detect_gpu_topology()
+        zero_stage = training_args.get("deepspeed_zero_stage", topology["recommended_zero_stage"])
+        batch = training_args.get("batch_size", 2)
+        grad_accum = training_args.get("gradient_accumulation_steps", 4)
+
+        ds_config = {
+            "train_batch_size": batch * grad_accum * max(topology["gpu_count"], 1),
+            "gradient_accumulation_steps": grad_accum,
+            "fp16": {
+                "enabled": training_args.get("fp16", True),
+                "auto_cast": True,
+                "loss_scale": 0,
+                "initial_scale_power": 16,
+            },
+            "zero_optimization": {
+                "stage": zero_stage,
+            },
+            "optimizer": {
+                "type": "AdamW",
+                "params": {
+                    "lr": training_args.get("learning_rate", 2e-4),
+                    "weight_decay": training_args.get("weight_decay", 0.01),
+                },
+            },
+            "scheduler": {
+                "type": "WarmupLR",
+                "params": {
+                    "warmup_min_lr": 0,
+                    "warmup_max_lr": training_args.get("learning_rate", 2e-4),
+                    "warmup_num_steps": training_args.get("warmup_steps", 10),
+                },
+            },
+        }
+
+        # ZeRO stage-specific tuning
+        if zero_stage >= 2:
+            ds_config["zero_optimization"]["offload_optimizer"] = {"device": "cpu", "pin_memory": True}
+        if zero_stage >= 3:
+            ds_config["zero_optimization"]["offload_param"] = {"device": "cpu", "pin_memory": True}
+            ds_config["zero_optimization"]["stage3_max_live_parameters"] = 1e8
+            ds_config["zero_optimization"]["stage3_prefetch_bucket_size"] = 3e7
+            ds_config["zero_optimization"]["stage3_param_persistence_threshold"] = 1e6
+
+        # BF16 support
+        try:
+            import torch
+            if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+                ds_config.pop("fp16", None)
+                ds_config["bf16"] = {"enabled": True}
+        except Exception:
+            pass
+
+        ds_config["topology"] = topology
+        return ds_config
+
     def _train_with_deepspeed(self, exp_id: str, model_name: str,
                                dataset_dict: dict, training_args: dict,
-                               config_path: str) -> dict:
+                               config_path: str = None) -> dict:
         try:
             import deepspeed
             from transformers.deepspeed import HfDeepSpeedConfig
 
-            ds_config = json.loads(Path(config_path).read_text()) if Path(config_path).exists() else {
-                "train_batch_size": training_args.get("batch_size", 2) * training_args.get("gradient_accumulation_steps", 4),
-                "fp16": {"enabled": True},
-                "zero_optimization": {"stage": 2},
-            }
+            if config_path and Path(config_path).exists():
+                ds_config = json.loads(Path(config_path).read_text())
+            else:
+                ds_config = self._build_deepspeed_config(training_args)
 
             hf_ds_config = HfDeepSpeedConfig(ds_config)
-            return {"success": True, "config": str(config_path), "zero_stage": ds_config.get("zero_optimization", {}).get("stage", 0)}
+            stage = ds_config.get("zero_optimization", {}).get("stage", 0)
+            gpu_topology = ds_config.get("topology", {})
+
+            logger.info(f"DeepSpeed ZeRO-{stage} | GPUs: {gpu_topology.get('gpu_count', '?')} | "
+                        f"NVLink: {gpu_topology.get('nvlink', False)} | "
+                        f"Total VRAM: {gpu_topology.get('total_vram_gb', 0):.1f} GB")
+
+            return {"success": True, "zero_stage": stage, "gpu_topology": gpu_topology,
+                    "config_preview": {k: v for k, v in ds_config.items() if k != "topology"}}
         except ImportError:
             return {"success": False, "error": "DeepSpeed not installed"}
         except Exception as e:

@@ -1,12 +1,13 @@
 """
-Memory Store - Epslionic-inspired file-based memory.
-Stores experiment data, training logs, errors, and agent state as JSON files.
+Memory Store - Epslionic-inspired file-based memory with SQLite persistence.
+Stores experiment data, training logs, errors, and agent state as JSON files + SQLite backup.
 """
 
 import json
 import os
 import time
 import logging
+import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -15,8 +16,187 @@ from collections import OrderedDict
 logger = logging.getLogger("epsionic.memory")
 
 
+class SQLiteStore:
+    """SQLite persistence layer for agent state, experiments, and jobs."""
+
+    def __init__(self, db_path: Path):
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        self._init_tables()
+
+    def _init_tables(self):
+        c = self._conn.cursor()
+        c.executescript("""
+            CREATE TABLE IF NOT EXISTS experiments (
+                id TEXT PRIMARY KEY, name TEXT, config TEXT, tags TEXT,
+                status TEXT, created_at TEXT, updated_at TEXT,
+                metrics TEXT, artifacts TEXT, errors TEXT
+            );
+            CREATE TABLE IF NOT EXISTS agent_state (
+                key TEXT PRIMARY KEY, value TEXT, updated_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS jobs (
+                id TEXT PRIMARY KEY, type TEXT, params TEXT, priority INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'queued', progress REAL DEFAULT 0.0,
+                result TEXT, error TEXT, created_at TEXT,
+                started_at TEXT, completed_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT, action TEXT, details TEXT
+            );
+            CREATE TABLE IF NOT EXISTS flows (
+                id TEXT PRIMARY KEY, name TEXT, description TEXT DEFAULT '',
+                nodes TEXT DEFAULT '[]', triggers TEXT DEFAULT '[]',
+                version TEXT DEFAULT '1.0', created_at TEXT, updated_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_experiments_status ON experiments(status);
+            CREATE INDEX IF NOT EXISTS idx_experiments_created ON experiments(created_at);
+            CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+            CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
+        """)
+        self._conn.commit()
+
+    # Experiments
+    def save_experiment(self, exp: dict):
+        c = self._conn.cursor()
+        c.execute("""INSERT OR REPLACE INTO experiments
+            (id, name, config, tags, status, created_at, updated_at, metrics, artifacts, errors)
+            VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (exp.get("id"), exp.get("name"), json.dumps(exp.get("config", {})),
+             json.dumps(exp.get("tags", [])), exp.get("status"),
+             exp.get("created_at"), exp.get("updated_at"),
+             json.dumps(exp.get("metrics", {})),
+             json.dumps(exp.get("artifacts", [])),
+             json.dumps(exp.get("errors", []))))
+        self._conn.commit()
+
+    def list_experiments_sqlite(self, status=None, limit=100) -> list:
+        c = self._conn.cursor()
+        if status:
+            c.execute("SELECT * FROM experiments WHERE status=? ORDER BY created_at DESC LIMIT ?", (status, limit))
+        else:
+            c.execute("SELECT * FROM experiments ORDER BY created_at DESC LIMIT ?", (limit,))
+        rows = c.fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            for field in ["config", "tags", "metrics", "artifacts", "errors"]:
+                if isinstance(d.get(field), str):
+                    try:
+                        d[field] = json.loads(d[field])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            result.append(d)
+        return result
+
+    # Agent state
+    def save_agent_state(self, key: str, value: Any):
+        c = self._conn.cursor()
+        c.execute("INSERT OR REPLACE INTO agent_state (key, value, updated_at) VALUES (?,?,?)",
+                  (key, json.dumps(value, default=str), datetime.now().isoformat()))
+        self._conn.commit()
+
+    def read_agent_state(self, key: str) -> Optional[Any]:
+        c = self._conn.cursor()
+        c.execute("SELECT value FROM agent_state WHERE key=?", (key,))
+        row = c.fetchone()
+        if row:
+            try:
+                return json.loads(row["value"])
+            except (json.JSONDecodeError, TypeError):
+                return row["value"]
+        return None
+
+    # Jobs
+    def save_job(self, job: dict):
+        c = self._conn.cursor()
+        c.execute("""INSERT OR REPLACE INTO jobs
+            (id, type, params, priority, status, progress, result, error, created_at, started_at, completed_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (job.get("id"), job.get("type"), json.dumps(job.get("params", {})),
+             job.get("priority", 0), job.get("status"), job.get("progress", 0.0),
+             json.dumps(job.get("result")) if job.get("result") else None,
+             job.get("error"), job.get("created_at"),
+             job.get("started_at"), job.get("completed_at")))
+        self._conn.commit()
+
+    def list_jobs_sqlite(self, status=None, job_type=None, limit=100) -> list:
+        c = self._conn.cursor()
+        query = "SELECT * FROM jobs WHERE 1=1"
+        params = []
+        if status:
+            query += " AND status=?"
+            params.append(status)
+        if job_type:
+            query += " AND type=?"
+            params.append(job_type)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        c.execute(query, params)
+        rows = c.fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            for field in ["params", "result"]:
+                if isinstance(d.get(field), str):
+                    try:
+                        d[field] = json.loads(d[field])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            result.append(d)
+        return result
+
+    # Audit
+    def save_audit(self, action: str, details: dict = None):
+        c = self._conn.cursor()
+        c.execute("INSERT INTO audit_log (timestamp, action, details) VALUES (?,?,?)",
+                  (datetime.now().isoformat(), action, json.dumps(details or {})))
+        self._conn.commit()
+
+    def list_audit(self, limit=50) -> list:
+        c = self._conn.cursor()
+        c.execute("SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (limit,))
+        return [dict(r) for r in c.fetchall()]
+
+    # Flows
+    def save_flow(self, flow_id: str, flow_data: dict):
+        c = self._conn.cursor()
+        c.execute("""INSERT OR REPLACE INTO flows
+            (id, name, description, nodes, triggers, version, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?)""",
+            (flow_id, flow_data.get("name", ""), flow_data.get("description", ""),
+             json.dumps(flow_data.get("nodes", [])),
+             json.dumps(flow_data.get("triggers", [])),
+             flow_data.get("version", "1.0"),
+             flow_data.get("created_at", datetime.now().isoformat()),
+             datetime.now().isoformat()))
+        self._conn.commit()
+
+    def list_flows_sqlite(self) -> list:
+        c = self._conn.cursor()
+        c.execute("SELECT id, name, description, nodes, version FROM flows ORDER BY updated_at DESC")
+        rows = c.fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["nodes"] = json.loads(d["nodes"]) if isinstance(d["nodes"], str) else d["nodes"]
+                d["node_count"] = len(d["nodes"]) if isinstance(d["nodes"], list) else 0
+            except Exception:
+                d["node_count"] = 0
+            result.append(d)
+        return result
+
+    def close(self):
+        self._conn.close()
+
+
 class MemoryStore:
-    def __init__(self, memory_dir: Path, cache_size: int = 100, heartbeat_ttl_days: int = 7):
+    def __init__(self, memory_dir: Path, cache_size: int = 100, heartbeat_ttl_days: int = 7,
+                 use_sqlite: bool = True):
         self.memory_dir = Path(memory_dir)
         self.memory_dir.mkdir(parents=True, exist_ok=True)
 
@@ -26,14 +206,56 @@ class MemoryStore:
         self._agent_dir = self.memory_dir / "agent"
         self._heartbeat_dir = self.memory_dir / "heartbeat"
         self._audit_dir = self.memory_dir / "audit"
+        self._jobs_dir = self.memory_dir / "jobs"
 
         for d in [self._experiments_dir, self._errors_dir, self._datasets_dir,
-                  self._agent_dir, self._heartbeat_dir, self._audit_dir]:
+                  self._agent_dir, self._heartbeat_dir, self._audit_dir, self._jobs_dir]:
             d.mkdir(exist_ok=True)
 
         self._experiment_cache = OrderedDict()
         self._cache_size = cache_size
         self._heartbeat_ttl_days = heartbeat_ttl_days
+
+        # SQLite persistence layer
+        self._sqlite = SQLiteStore(self.memory_dir / "epsionic.db") if use_sqlite else None
+
+    def save_state(self) -> dict:
+        """Persist all agent state to SQLite."""
+        if not self._sqlite:
+            return {"success": False, "error": "SQLite not enabled"}
+        count = 0
+        for f in self._experiments_dir.glob("*.json"):
+            try:
+                exp = json.loads(f.read_text())
+                self._sqlite.save_experiment(exp)
+                count += 1
+            except Exception:
+                pass
+        for f in self._jobs_dir.glob("*.json"):
+            try:
+                job = json.loads(f.read_text())
+                self._sqlite.save_job(job)
+                count += 1
+            except Exception:
+                pass
+        for f in self._agent_dir.glob("*.json"):
+            try:
+                data = json.loads(f.read_text())
+                self._sqlite.save_agent_state(f.stem, data)
+                count += 1
+            except Exception:
+                pass
+        self._sqlite.save_audit("state_saved", {"records": count})
+        return {"success": True, "records_saved": count}
+
+    def restore_state(self) -> dict:
+        """Restore agent state from SQLite."""
+        if not self._sqlite:
+            return {"success": False, "error": "SQLite not enabled"}
+        experiments = self._sqlite.list_experiments_sqlite()
+        for exp in experiments:
+            self._write_experiment(exp["id"], exp)
+        return {"success": True, "experiments_restored": len(experiments)}
 
     @property
     def exp_dir(self):

@@ -70,13 +70,6 @@ Issues = "https://github.com/epsionic/epsionic/issues"
 [project.scripts]
 epsionic = "epsionic.cli:main"
 
-[tool.setuptools.packages.find]
-include = ["epsionic", "epsionic.*"]
-namespaces = false
-
-[tool.setuptools.package-data]
-epsionic = ["py.typed"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
