@@ -3,7 +3,12 @@ FROM python:3.11-slim AS builder
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml setup.py ./
+COPY pyproject.toml setup.py MANIFEST.in ./
+COPY __init__.py cli.py config.py exceptions.py launch.py deploy_to_colab.py epsionic_agent_complete.py ./
+COPY core/ core/
+COPY tools/ tools/
+COPY utils/ utils/
+COPY tests/ tests/
 COPY epsionic/ epsionic/
 RUN pip install --no-cache-dir build && python -m build
 
