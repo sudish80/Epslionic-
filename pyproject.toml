@@ -58,15 +58,20 @@ dashboard = [
 serve = [
     "fastapi>=0.109.0",
     "uvicorn>=0.27.0",
+    "websockets>=12.0",
 ]
 colab = [
     "google-colab>=1.0",
+    "pyngrok>=7.0",
+]
+benchmarks = [
+    "lm-eval>=0.4.0",
 ]
 mempalace = [
     "mempalace>=1.0",
 ]
 all = [
-    "epsionic[dashboard,dev,mempalace,serve]",
+    "epsionic[dashboard,dev,mempalace,serve,colab,benchmarks]",
 ]
 
 [project.urls]

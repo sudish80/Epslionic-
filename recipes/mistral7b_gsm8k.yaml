@@ -1,0 +1,21 @@
+name: "Mistral 7B + GSM8K"
+description: "Fine-tune Mistral 7B on GSM8K math reasoning with QLoRA"
+domain: math
+model: "unsloth/mistral-7b-bnb-4bit"
+dataset: "gsm8k"
+format: "### Instruction\n{q}\n### Response\n{a}"
+training:
+  learning_rate: 2e-4
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  max_seq_length: 1024
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 4
+  num_train_epochs: 3
+  warmup_ratio: 0.03
+  logging_steps: 10
+  save_steps: 200
+  optim: "adamw_8bit"
+  bf16: true
+  packing: false

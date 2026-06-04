@@ -1,0 +1,21 @@
+name: "Phi-3 Mini + OpenOrca"
+description: "Fine-tune Phi-3 Mini on OpenOrca for general instruction following"
+domain: general
+model: "unsloth/phi-3-mini-bnb-4bit"
+dataset: "Open-Orca/OpenOrca"
+format: "### System\n{system}\n### Question\n{question}\n### Answer\n{answer}"
+training:
+  learning_rate: 3e-4
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  max_seq_length: 2048
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 2
+  num_train_epochs: 2
+  warmup_ratio: 0.03
+  logging_steps: 10
+  save_steps: 500
+  optim: "adamw_8bit"
+  bf16: true
+  packing: false

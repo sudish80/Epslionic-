@@ -21,6 +21,12 @@ from .cost_tracker import CostTracker
 from .notifier import Notifier
 from .flow import FlowEngine
 
+from .recipe_manager import RecipeManager
+from .colab_deploy import generate_colab_notebook
+from .marketplace import Marketplace
+from .benchmarks import BenchmarkRunner
+from .prompt_manager import PromptManager
+
 
 def serve(*args, **kwargs):
     from .dashboard import serve as _serve
@@ -37,4 +43,5 @@ __all__ = [
     "PreferenceTrainerTool", "ModelMerger", "SyntheticDataGenerator", "ModelEvaluator", "ModelServer", "ModelPlayground",
     "ExperimentTracker", "HyperparameterOptimizer", "ModelQuantizer", "CostTracker", "Notifier",
     "FlowEngine",
+    "RecipeManager", "generate_colab_notebook", "Marketplace", "BenchmarkRunner", "PromptManager",
 ]

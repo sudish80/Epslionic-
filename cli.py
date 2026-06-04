@@ -7,7 +7,7 @@ import argparse
 import subprocess
 import threading
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 _STRIP_EMOJI = False
 
@@ -296,6 +296,19 @@ def cmd_dashboard(gw: Gateway, share: bool = True, port: int = 7860) -> int:
     return 0
 
 
+def _agent_chat(gw, prompt: str, max_tokens: int = 512, temperature: float = 0.7) -> str:
+    """Simple agent chat — uses LLMBrain to generate a response."""
+    try:
+        result = gw.brain.think_and_act(
+            prompt,
+            context=f"Respond helpfully. Max tokens: {max_tokens}",
+            max_steps=1,
+        )
+        return result.reasoning or result.action_params.get("response", "No response generated.")
+    except Exception as e:
+        return f"Error: {e}"
+
+
 def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
     try:
         from fastapi import FastAPI, HTTPException
@@ -404,6 +417,222 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
         if issues:
             return JSONResponse(status_code=503, content={"status": "not ready", "issues": issues})
         return {"status": "ready", "uptime": gw.state.started_at}
+
+    # ── OpenAI-compatible API ─────────────────────────────────────────
+    from pydantic import BaseModel
+
+    class ChatMessage(BaseModel):
+        role: str
+        content: str
+
+    class ChatRequest(BaseModel):
+        model: str = "default"
+        messages: List[ChatMessage]
+        temperature: float = 0.7
+        max_tokens: int = 512
+        stream: bool = False
+
+    class CompletionRequest(BaseModel):
+        model: str = "default"
+        prompt: str
+        max_tokens: int = 512
+        temperature: float = 0.7
+
+    @app.get("/v1/models")
+    def list_models(auth: bool = Depends(_verify_key)):
+        models = [{"id": "default", "object": "model", "created": int(datetime.now().timestamp()), "owned_by": "epsionic"}]
+        from ..tools.model_server import list_models as ls
+        try:
+            models.extend(ls())
+        except Exception:
+            pass
+        return {"object": "list", "data": models}
+
+    @app.post("/v1/chat/completions")
+    def chat_completion(req: ChatRequest, auth: bool = Depends(_verify_key)):
+        prompt = "\n".join(f"{m.role}: {m.content}" for m in req.messages)
+        output = _agent_chat(gw, prompt, req.max_tokens, req.temperature)
+        return {
+            "id": f"chatcmpl-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            "object": "chat.completion",
+            "created": int(datetime.now().timestamp()),
+            "model": req.model,
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": output}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": len(prompt.split()), "completion_tokens": len(output.split()), "total_tokens": len(prompt.split()) + len(output.split())},
+        }
+
+    @app.post("/v1/completions")
+    def text_completion(req: CompletionRequest, auth: bool = Depends(_verify_key)):
+        output = _agent_chat(gw, req.prompt, req.max_tokens, req.temperature)
+        return {
+            "id": f"cmpl-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            "object": "text_completion",
+            "created": int(datetime.now().timestamp()),
+            "model": req.model,
+            "choices": [{"index": 0, "text": output, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": len(req.prompt.split()), "completion_tokens": len(output.split()), "total_tokens": len(req.prompt.split()) + len(output.split())},
+        }
+
+    # ── WebSocket Dashboard ────────────────────────────────────────────
+    from fastapi import WebSocket, WebSocketDisconnect
+
+    _ws_clients: list = []
+
+    @app.websocket("/ws/dashboard")
+    async def ws_dashboard(websocket: WebSocket):
+        await websocket.accept()
+        _ws_clients.append(websocket)
+        try:
+            while True:
+                data = await websocket.receive_text()
+                # Echo back or handle commands
+                await websocket.send_text(f'{{"echo": "{data}"}}')
+        except WebSocketDisconnect:
+            if websocket in _ws_clients:
+                _ws_clients.remove(websocket)
+
+    # ── Webhook Integration ────────────────────────────────────────────
+    from ..core.webhooks import WebhookManager
+    gw._webhook_manager = WebhookManager()
+
+    def _fire_webhooks(event: str, **kw):
+        if hasattr(gw, "_webhook_manager"):
+            gw._webhook_manager.fire(event, kw)
+    gw.hook("after_tool", lambda gw_obj, **kw: _fire_webhooks("tool_complete", **kw))
+    gw.hook("on_error", lambda gw_obj, **kw: _fire_webhooks("error", **kw))
+    gw.hook("on_complete", lambda gw_obj, **kw: _fire_webhooks("objective_complete", **kw))
+
+    # ── Webhook API endpoints ──────────────────────────────────────────
+
+    @app.post("/webhooks")
+    def register_webhook(url: str, events: List[str], auth: bool = Depends(_verify_key)):
+        if hasattr(gw, "_webhook_manager"):
+            hook = gw._webhook_manager.register(url, events)
+            return {"status": "registered", "hook": hook}
+        return {"error": "WebhookManager not available"}
+
+    @app.get("/webhooks")
+    def list_webhooks(auth: bool = Depends(_verify_key)):
+        if hasattr(gw, "_webhook_manager"):
+            return {"webhooks": gw._webhook_manager.list()}
+        return {"webhooks": []}
+
+    @app.delete("/webhooks/{hook_id}")
+    def remove_webhook(hook_id: str, auth: bool = Depends(_verify_key)):
+        if hasattr(gw, "_webhook_manager") and gw._webhook_manager.remove(hook_id):
+            return {"status": "removed"}
+        raise HTTPException(404, "Webhook not found")
+
+    # ── Recipe / Marketplace endpoints ─────────────────────────────────
+
+    @app.get("/recipes")
+    def list_recipes(domain: str = None, auth: bool = Depends(_verify_key)):
+        from ..tools.recipe_manager import RecipeManager
+        rm = RecipeManager()
+        return {"recipes": rm.list_recipes(domain)}
+
+    @app.get("/recipes/search")
+    def search_registry(query: str = "", auth: bool = Depends(_verify_key)):
+        from ..tools.recipe_manager import RecipeManager
+        rm = RecipeManager()
+        return {"results": rm.search_registry(query)}
+
+    @app.post("/recipes/download")
+    def download_recipe(name: str, auth: bool = Depends(_verify_key)):
+        from ..tools.recipe_manager import RecipeManager
+        rm = RecipeManager()
+        ok = rm.download_recipe(name)
+        return {"status": "downloaded" if ok else "failed"}
+
+    @app.get("/marketplace")
+    def marketplace_list(category: str = "recipes", auth: bool = Depends(_verify_key)):
+        from ..tools.marketplace import Marketplace
+        m = Marketplace(gw.config.workspace_root)
+        return {"items": m.list_available(category)}
+
+    @app.post("/marketplace/download")
+    def marketplace_download(category: str, name: str, auth: bool = Depends(_verify_key)):
+        from ..tools.marketplace import Marketplace
+        m = Marketplace(gw.config.workspace_root)
+        ok = m.download(category, name)
+        return {"status": "downloaded" if ok else "failed"}
+
+    # ── Tenant / Multi-Tenant endpoints ────────────────────────────────
+
+    @app.post("/tenants")
+    def create_tenant(name: str, auth: bool = Depends(_verify_key)):
+        from ..core.workspace import WorkspaceManager
+        wm = WorkspaceManager(Path(str(gw.config.workspace_root)) / "tenants.db")
+        tenant = wm.create_tenant(name, gw.config.workspace_root)
+        return tenant
+
+    @app.get("/tenants")
+    def list_tenants(auth: bool = Depends(_verify_key)):
+        from ..core.workspace import WorkspaceManager
+        wm = WorkspaceManager(Path(str(gw.config.workspace_root)) / "tenants.db")
+        return {"tenants": wm.list_tenants()}
+
+    # ── Prompt Management endpoints ────────────────────────────────────
+
+    @app.post("/prompts")
+    def create_prompt(name: str, template: str, auth: bool = Depends(_verify_key)):
+        from ..tools.prompt_manager import PromptManager
+        pm = PromptManager(Path(str(gw.config.workspace_root)) / "prompts.db")
+        result = pm.create_template(name, template)
+        return result
+
+    @app.get("/prompts")
+    def list_prompts(tag: str = None, auth: bool = Depends(_verify_key)):
+        from ..tools.prompt_manager import PromptManager
+        pm = PromptManager(Path(str(gw.config.workspace_root)) / "prompts.db")
+        return {"prompts": pm.list_templates(tag)}
+
+    @app.post("/prompts/{prompt_id}/render")
+    def render_prompt(prompt_id: str, variables: dict = None, auth: bool = Depends(_verify_key)):
+        from ..tools.prompt_manager import PromptManager
+        pm = PromptManager(Path(str(gw.config.workspace_root)) / "prompts.db")
+        result = pm.render(prompt_id, variables or {})
+        if result is None:
+            raise HTTPException(404, "Prompt not found")
+        return {"rendered": result}
+
+    @app.post("/ab-tests")
+    def create_ab_test(name: str, prompt_a_id: str, prompt_b_id: str, auth: bool = Depends(_verify_key)):
+        from ..tools.prompt_manager import PromptManager
+        pm = PromptManager(Path(str(gw.config.workspace_root)) / "prompts.db")
+        return pm.create_ab_test(name, prompt_a_id, prompt_b_id)
+
+    @app.get("/ab-tests/{test_id}")
+    def get_ab_test(test_id: str, auth: bool = Depends(_verify_key)):
+        from ..tools.prompt_manager import PromptManager
+        pm = PromptManager(Path(str(gw.config.workspace_root)) / "prompts.db")
+        return pm.get_ab_summary(test_id)
+
+    # ── Benchmark endpoints ────────────────────────────────────────────
+
+    @app.get("/benchmarks")
+    def list_benchmarks(auth: bool = Depends(_verify_key)):
+        from ..tools.benchmarks import BenchmarkRunner
+        return {"benchmarks": BenchmarkRunner.list_benchmarks()}
+
+    @app.post("/benchmarks/run")
+    def run_benchmark(benchmark: str, model_path: str = None, auth: bool = Depends(_verify_key)):
+        from ..tools.benchmarks import BenchmarkRunner
+        br = BenchmarkRunner(model_path)
+        try:
+            result = br.run(benchmark)
+            return result
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    # ── Colab Deploy endpoint ──────────────────────────────────────────
+
+    @app.post("/deploy/colab")
+    def deploy_colab(api_key: str = "", hf_token: str = "", server_api_key: str = "epsionic-local-key",
+                     auth: bool = Depends(_verify_key)):
+        from ..tools.colab_deploy import generate_colab_notebook
+        notebook = generate_colab_notebook(api_key, hf_token, server_api_key)
+        return {"status": "generated", "cells": len(notebook.splitlines()), "notebook": notebook[:500]}
 
     import re
     _DOMAIN_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
