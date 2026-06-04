@@ -309,21 +309,14 @@ def _agent_chat(gw, prompt: str, max_tokens: int = 512, temperature: float = 0.7
         return f"Error: {e}"
 
 
-def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
-    try:
-        from fastapi import FastAPI, HTTPException
-        from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse
-        import uvicorn
-    except ImportError:
-        logger.error("fastapi/uvicorn not installed. Install with: pip install fastapi uvicorn")
-        return 1
-
+def make_app(gw: Gateway) -> "FastAPI":
+    """Build the FastAPI application for a given Gateway instance."""
+    from fastapi import FastAPI, HTTPException, Depends, Security, Request, WebSocket, WebSocketDisconnect
+    from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.middleware.trustedhost import TrustedHostMiddleware
-
-    from fastapi import Depends, HTTPException, Security, Request
     from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
     from starlette.middleware.base import BaseHTTPMiddleware
+    from pydantic import BaseModel
 
     _api_key = os.environ.get("EPSIONIC_API_KEY", "")
     _security = HTTPBearer(auto_error=False)
@@ -1054,6 +1047,17 @@ function runFlow(){if(!currentFlowId){alert('Save or load a flow first');return}
 </script></body></html>"""
         return HTMLResponse(content=html)
 
+    return app
+
+
+def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
+    try:
+        import uvicorn
+    except ImportError:
+        logger.error("fastapi/uvicorn not installed. Install with: pip install fastapi uvicorn")
+        return 1
+
+    app = make_app(gw)
     _echo(f"Starting API server on http://{host}:{port}")
     uvicorn.run(app, host=host, port=port)
     return 0

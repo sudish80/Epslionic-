@@ -574,9 +574,19 @@ class Gateway:
                         self.memory.backup()
                     except Exception as exc:
                         logger.warning("Backup failed: %s", exc)
-                    time.sleep(1800)  # 30 minutes
+                    time.sleep(1800)
             self._backup_thread = threading.Thread(target=_loop, daemon=True, name="mem-backup")
             self._backup_thread.start()
             logger.info("Backup loop started (interval=30m)")
 
     def shutdown(self):
+        self._scheduler_running = False
+        self._backup_running = False
+        self._budget_halt = False
+        self._log_audit("shutdown", {"status": self.state.status, "domain": self.state.domain, "tools": self.state.tools_loaded})
+        self._plugin_manager.run_hook("on_shutdown")
+        self.heartbeat.stop()
+        self.session_manager.shutdown()
+        self._state_transition("stopped")
+        self._running = False
+        logger.info("Gateway shutdown complete")

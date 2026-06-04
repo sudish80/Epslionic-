@@ -95,13 +95,13 @@ def get_gateway(config=None, auto_install_deps=True):
 
     if auto_install_deps:
         try:
-            from .epsionic_agent_complete import auto_install
+            from .cli import _auto_install
             has_gpu = False
             try:
                 import torch; has_gpu = torch.cuda.is_available()
             except ImportError:
                 pass
-            auto_install(essential_only=not has_gpu)
+            _auto_install(essential_only=not has_gpu)
         except ImportError:
             pass
 
