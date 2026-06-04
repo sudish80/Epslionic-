@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-ENV_PREFIX = "OPENCLAW_"
+ENV_PREFIX = "EPSIONIC_"
 
 __test__ = False
 

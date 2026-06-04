@@ -3,7 +3,7 @@ __test__ = False
 
 class EpslionicError(Exception):
     """Base exception for all Epslionic agent errors."""
-    code = "OPENCLAW_ERROR"
+    code = "EPSIONIC_ERROR"
 
     def __init__(self, message="", cause=None, context=None):
         self.message = message

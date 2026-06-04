@@ -11,8 +11,8 @@ class TestConfigEnhancements:
 
     def test_from_env_prefixed(self, monkeypatch):
         from epsionic.config import AgentConfig
-        monkeypatch.setenv("OPENCLAW_LLM_MODEL", "gpt-4")
-        monkeypatch.setenv("OPENCLAW_HEARTBEAT_INTERVAL_SECONDS", "30")
+        monkeypatch.setenv("EPSIONIC_LLM_MODEL", "gpt-4")
+        monkeypatch.setenv("EPSIONIC_HEARTBEAT_INTERVAL_SECONDS", "30")
         cfg = AgentConfig.from_env()
         assert cfg.llm_model == "gpt-4"
         assert cfg.heartbeat_interval_seconds == 30
