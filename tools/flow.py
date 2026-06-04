@@ -10,7 +10,7 @@ from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
 
-logger = logging.getLogger("openclaw.tool.flow")
+logger = logging.getLogger("epsionic.tool.flow")
 
 
 NODE_REGISTRY = {}

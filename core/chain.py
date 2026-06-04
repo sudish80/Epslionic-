@@ -4,7 +4,7 @@ Pattern from LangChain (138k stars): RunnableSequence, RunnableParallel."""
 import logging
 from typing import Dict, Any, List, Callable, Optional, Union
 
-logger = logging.getLogger("openclaw.chain")
+logger = logging.getLogger("epsionic.chain")
 
 
 class Chain:

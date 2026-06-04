@@ -3,13 +3,13 @@
 ## Installation
 
 ```bash
-pip install openclaw-colab-agent
+pip install epsionic
 ```
 
 For development:
 ```bash
-git clone https://github.com/openclaw/openclaw-colab-agent
-cd openclaw-colab-agent
+git clone https://github.com/epsionic/epsionic
+cd epsionic
 pip install -e ".[dev,dashboard]"
 ```
 
@@ -17,25 +17,25 @@ pip install -e ".[dev,dashboard]"
 
 ### Interactive Mode
 ```bash
-openclaw --interactive
+epsionic --interactive
 ```
 The agent will show a domain menu. Pick one, and it runs the full pipeline.
 
 ### Autonomous Mode
 ```bash
-openclaw --autonomous
+epsionic --autonomous
 ```
 The agent detects your environment (GPU, VRAM) and auto-selects the best domain.
 
 ### Web Dashboard
 ```bash
-openclaw --dashboard
+epsionic --dashboard
 ```
 Launches a Gradio UI at `http://localhost:7860`.
 
 ### REST API
 ```bash
-openclaw --serve
+epsionic --serve
 curl http://localhost:8000/health
 ```
 

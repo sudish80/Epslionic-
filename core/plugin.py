@@ -6,7 +6,7 @@ import importlib.util
 from pathlib import Path
 from typing import Dict, List, Optional, Callable, Any
 
-logger = logging.getLogger("openclaw.plugin")
+logger = logging.getLogger("epsionic.plugin")
 
 
 class Plugin:
@@ -127,13 +127,13 @@ class PluginManager:
 
     def create_example(self):
         example = """\"\"\"
-Example OpenClaw Plugin
+Example Epslionic Plugin
 AutoGPT-style plugin (184k stars).
 Hooks: on_register, before_tool, after_tool, on_error, on_startup, on_shutdown
 \"\"\"
 
 import logging
-logger = logging.getLogger("openclaw.plugin.example")
+logger = logging.getLogger("epsionic.plugin.example")
 
 PLUGIN_CONFIG = {
     "name": "Example Plugin",

@@ -8,7 +8,7 @@ import re
 from typing import Optional, Dict, Any, List, Callable
 from pathlib import Path
 
-logger = logging.getLogger("openclaw.tool.evaluator")
+logger = logging.getLogger("epsionic.tool.evaluator")
 
 
 BENCHMARK_INFO = {

@@ -1,6 +1,6 @@
 """
 Auto-Fixer Tool - Detects and fixes common ML training errors.
-OpenClaw skill: self-healing capability that monitors and corrects issues.
+Epslionic skill: self-healing capability that monitors and corrects issues.
 Designed for Colab environment with common GPU/training errors.
 """
 
@@ -11,7 +11,7 @@ import traceback
 from typing import Optional, Dict, Any, List, Callable
 from pathlib import Path
 
-logger = logging.getLogger("openclaw.tool.auto_fixer")
+logger = logging.getLogger("epsionic.tool.auto_fixer")
 
 
 class AutoFixerTool:
@@ -123,7 +123,7 @@ class AutoFixerTool:
             brain_fix: dict = None) -> dict:
         """
         Public entry point: analyze an error and attempt a fix.
-        Wraps analyze_and_fix with the OpenClaw expected return shape.
+        Wraps analyze_and_fix with the Epslionic expected return shape.
         """
         result = self.analyze_and_fix(error, context, brain_fix)
         return {

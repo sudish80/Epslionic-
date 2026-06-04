@@ -1,3 +1,3 @@
-"""Setup script for openclaw-colab-agent. Backward-compatible wrapper."""
+"""Setup script for epsionic. Backward-compatible wrapper."""
 from setuptools import setup
 setup()

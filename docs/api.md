@@ -2,7 +2,7 @@
 
 ## FastAPI Server
 
-Start with `openclaw --serve`.
+Start with `epsionic --serve`.
 
 ### `GET /health`
 Returns gateway health status.

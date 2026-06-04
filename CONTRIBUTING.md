@@ -1,4 +1,4 @@
-# Contributing to OpenClaw-Colab Agent
+# Contributing to Epslionic-Colab Agent
 
 We love contributions! Here's how to get started.
 
@@ -6,7 +6,7 @@ We love contributions! Here's how to get started.
 
 ```bash
 git clone <your-fork>
-cd openclaw-colab-agent
+cd epsionic
 pip install -e ".[dev,dashboard]"
 pre-commit install
 ```
@@ -15,7 +15,7 @@ pre-commit install
 
 - **Formatting**: Ruff (`ruff format .`)
 - **Linting**: Ruff (`ruff check .`)
-- **Type checking**: mypy (`mypy openclaw_colab_agent`)
+- **Type checking**: mypy (`mypy epsionic`)
 - **Imports**: isort with black profile
 
 Run all checks:
@@ -48,7 +48,7 @@ Write tests in `tests/` following existing patterns. Mark GPU/network/slow tests
 ## Project Structure
 
 ```
-openclaw_colab_agent/
+epsionic/
 ├── core/          # Gateway, Domain, Memory, Session, Heartbeat, Brain, State, Chain, Plugin
 ├── tools/         # DatasetDiscovery, Trainer, AutoFixer, Dashboard
 ├── utils/         # DeviceManager

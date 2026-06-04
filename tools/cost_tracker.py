@@ -9,7 +9,7 @@ from pathlib import Path
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 
-logger = logging.getLogger("openclaw.tool.cost_tracker")
+logger = logging.getLogger("epsionic.tool.cost_tracker")
 
 
 @dataclass

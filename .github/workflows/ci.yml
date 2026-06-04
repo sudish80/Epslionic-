@@ -25,11 +25,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install ruff isort mypy
       - name: Ruff lint
-        run: ruff check openclaw_colab_agent tests
+        run: ruff check epsionic tests
       - name: Ruff format check
-        run: ruff format --check openclaw_colab_agent tests
+        run: ruff format --check epsionic tests
       - name: MyPy type check
-        run: mypy openclaw_colab_agent
+        run: mypy epsionic
 
   test:
     name: Test (py${{ matrix.python-version }})
@@ -61,4 +61,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build Docker image
-        run: docker build -t openclaw-agent:latest .
+        run: docker build -t epsionic-agent:latest .

@@ -1,10 +1,10 @@
-# Makefile for OpenClaw-Colab Agent
+# Makefile for Epslionic-Colab Agent
 # Patterns from huggingface/transformers (120k+ stars)
 
 .PHONY: help install dev-install style lint typecheck test test-cov build clean distclean docker docker-run
 
 help:  # Show this help
-	@echo "OpenClaw-Colab Agent - Makefile"
+	@echo "Epslionic-Colab Agent - Makefile"
 	@echo ""
 	@echo "Usage:"
 	@echo "  make install         Install package in editable mode"
@@ -28,22 +28,22 @@ dev-install:  # Install dev dependencies
 	pip install -e ".[dev,dashboard]"
 
 style:  # Run ruff formatter and isort
-	ruff format openclaw_colab_agent tests
-	ruff check --fix openclaw_colab_agent tests
-	isort openclaw_colab_agent tests
+	ruff format epsionic tests
+	ruff check --fix epsionic tests
+	isort epsionic tests
 
 lint:  # Run ruff linter
-	ruff check openclaw_colab_agent tests
-	ruff format --check openclaw_colab_agent tests
+	ruff check epsionic tests
+	ruff format --check epsionic tests
 
 typecheck:  # Run mypy type checking
-	mypy openclaw_colab_agent
+	mypy epsionic
 
 test:  # Run quick tests
 	python -m pytest tests/ -v --timeout=30 -x -q
 
 test-cov:  # Run tests with coverage
-	python -m pytest tests/ -v --timeout=30 --cov=openclaw_colab_agent --cov-report=term --cov-report=html
+	python -m pytest tests/ -v --timeout=30 --cov=epsionic --cov-report=term --cov-report=html
 
 test-all:  # Run all tests (including slow)
 	python -m pytest tests/ -v --timeout=120 --runslow
@@ -73,11 +73,11 @@ distclean: clean  # Full cleanup
 	rm -rf memory/ models/ datasets/ logs/ workspace*/
 
 docker:  # Build Docker image
-	docker build -t openclaw-agent:latest .
+	docker build -t epsionic-agent:latest .
 
 docker-run:  # Run in Docker container
 	docker run --rm -it --gpus all \
 		-e OPENAI_API_KEY=$${OPENAI_API_KEY:-""} \
 		-e HF_TOKEN=$${HF_TOKEN:-""} \
 		-v $${PWD}/data:/workspace/data \
-		openclaw-agent:latest --autonomous
+		epsionic-agent:latest --autonomous

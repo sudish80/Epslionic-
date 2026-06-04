@@ -1,1 +1,1 @@
-"""OpenClaw-Colab Agent test suite."""
+"""Epslionic-Colab Agent test suite."""

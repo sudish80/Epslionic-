@@ -1,7 +1,7 @@
 import os
 import logging
 
-logger = logging.getLogger("openclaw.device")
+logger = logging.getLogger("epsionic.device")
 
 
 class DeviceManager:

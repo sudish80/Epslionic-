@@ -29,7 +29,7 @@ def tmp_workspace() -> Generator[Path, None, None]:
 @pytest.fixture(scope="function")
 def mock_memory_store(tmp_workspace: Path):
     """Create a MemoryStore-like object backed by temp JSON files."""
-    from openclaw_colab_agent.core.memory import MemoryStore
+    from epsionic.core.memory import MemoryStore
     store = MemoryStore(tmp_workspace / "memory")
     return store
 
@@ -37,8 +37,8 @@ def mock_memory_store(tmp_workspace: Path):
 @pytest.fixture(scope="function")
 def gateway(tmp_workspace: Path):
     """Create a fully wired Gateway for testing."""
-    from openclaw_colab_agent.config import AgentConfig
-    from openclaw_colab_agent.core.gateway import Gateway
+    from epsionic.config import AgentConfig
+    from epsionic.core.gateway import Gateway
 
     cfg = AgentConfig()
     cfg.workspace_root = tmp_workspace
@@ -56,9 +56,9 @@ def gateway(tmp_workspace: Path):
 @pytest.fixture(scope="function")
 def gateway_with_tools(gateway):
     """Gateway with all tools registered (mock trainer)."""
-    from openclaw_colab_agent.tools.dataset_discovery import DatasetDiscoveryTool
-    from openclaw_colab_agent.tools.trainer import TrainerTool
-    from openclaw_colab_agent.tools.auto_fixer import AutoFixerTool
+    from epsionic.tools.dataset_discovery import DatasetDiscoveryTool
+    from epsionic.tools.trainer import TrainerTool
+    from epsionic.tools.auto_fixer import AutoFixerTool
 
     ds_dir = Path(gateway.config.datasets_dir) if not isinstance(gateway.config.datasets_dir, Path) else gateway.config.datasets_dir
     ds_tool = DatasetDiscoveryTool(gateway.memory, ds_dir, gateway.config.huggingface_token)

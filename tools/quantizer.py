@@ -7,7 +7,7 @@ import os
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
-logger = logging.getLogger("openclaw.tool.quantizer")
+logger = logging.getLogger("epsionic.tool.quantizer")
 
 
 class ModelQuantizer:

@@ -7,7 +7,7 @@ import os
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
-logger = logging.getLogger("openclaw.tool.preference_trainer")
+logger = logging.getLogger("epsionic.tool.preference_trainer")
 
 PREFERENCE_DATASETS = {
     "dpo": ["Anthropic/hh-rlhf", "Intel/orca_dpo_pairs", "argilla/ultrafeedback-binarized-preferences"],

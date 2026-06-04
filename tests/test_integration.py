@@ -11,8 +11,8 @@ class TestGatewayIntegration:
     """End-to-end Gateway pipeline with mocked tools."""
 
     def test_build_gateway_from_config(self, tmp_workspace):
-        from openclaw_colab_agent.config import AgentConfig
-        from openclaw_colab_agent.core.gateway import Gateway
+        from epsionic.config import AgentConfig
+        from epsionic.core.gateway import Gateway
         cfg = AgentConfig()
         cfg.workspace_root = tmp_workspace
         gw = Gateway(cfg)
@@ -20,7 +20,7 @@ class TestGatewayIntegration:
         assert gw.state.status == "idle"
 
     def test_full_domain_pipeline(self, gateway_with_tools):
-        from openclaw_colab_agent.core.domain import DOMAINS
+        from epsionic.core.domain import DOMAINS
         result = gateway_with_tools.run_domain("math", DOMAINS["math"])
         assert result["domain"] == "math"
         assert len(result["steps"]) >= 4

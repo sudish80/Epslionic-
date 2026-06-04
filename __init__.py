@@ -4,7 +4,7 @@ __version_info__ = tuple(int(x) for x in __version__.split("."))
 __all__ = [
     "__version__",
     "AgentConfig",
-    "OpenClawError",
+    "EpslionicError",
     "ConfigurationError",
     "EnvironmentError",
     "GPUError",
@@ -29,7 +29,7 @@ def __getattr__(name):
 
     _LAZY_MAP = {
         "AgentConfig": (".config", "AgentConfig"),
-        "OpenClawError": (".exceptions", "OpenClawError"),
+        "EpslionicError": (".exceptions", "EpslionicError"),
         "ConfigurationError": (".exceptions", "ConfigurationError"),
         "EnvironmentError": (".exceptions", "EnvironmentError"),
         "GPUError": (".exceptions", "GPUError"),
@@ -95,7 +95,7 @@ def get_gateway(config=None, auto_install_deps=True):
 
     if auto_install_deps:
         try:
-            from .openclaw_agent_complete import auto_install
+            from .epsionic_agent_complete import auto_install
             has_gpu = False
             try:
                 import torch; has_gpu = torch.cuda.is_available()
@@ -183,7 +183,7 @@ def get_gateway(config=None, auto_install_deps=True):
         ))
     gw.register_tool("track_run", "Initialize experiment tracking",
         lambda **kw: tracker_tool.init_run(
-            project=kw.get("project", "openclaw"),
+            project=kw.get("project", "epsionic"),
             name=kw.get("name", None),
             config=kw.get("config", {}),
         ))
@@ -205,7 +205,7 @@ def get_gateway(config=None, auto_install_deps=True):
         ))
     gw.register_tool("notify", "Send notification",
         lambda **kw: notif_tool.send(
-            title=kw.get("title", "OpenClaw"),
+            title=kw.get("title", "Epslionic"),
             message=kw.get("message", ""),
             channels=kw.get("channels", ["log"]),
             level=kw.get("level", "info"),

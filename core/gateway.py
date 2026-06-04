@@ -8,7 +8,7 @@ from dataclasses import dataclass, field, asdict
 
 from ..config import AgentConfig
 from ..exceptions import (
-    OpenClawError, ToolError, ConfigurationError,
+    EpslionicError, ToolError, ConfigurationError,
     error_code, as_error
 )
 from .session import SessionManager, SessionStatus
@@ -21,7 +21,7 @@ from .plugin import PluginManager
 from .chain import ChainBuilder, Pipeline, Chain
 from ..utils.device import DeviceManager
 
-logger = logging.getLogger("openclaw.gateway")
+logger = logging.getLogger("epsionic.gateway")
 
 
 @dataclass

@@ -7,7 +7,7 @@ import os
 from typing import Optional, Dict, Any, List, Callable
 from pathlib import Path
 
-logger = logging.getLogger("openclaw.tool.optimizer")
+logger = logging.getLogger("epsionic.tool.optimizer")
 
 
 DOMAIN_SEARCH_SPACES = {

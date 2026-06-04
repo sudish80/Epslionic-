@@ -1,8 +1,8 @@
-# OpenClaw-Colab Agent
+# Epslionic-Colab Agent
 
-[![CI](https://github.com/openclaw/openclaw-colab-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/openclaw/openclaw-colab-agent/actions/workflows/ci.yml)
-[![PyPI version](https://img.shields.io/pypi/v/openclaw-colab-agent.svg)](https://pypi.org/project/openclaw-colab-agent/)
-[![Python versions](https://img.shields.io/pypi/pyversions/openclaw-colab-agent.svg)](https://pypi.org/project/openclaw-colab-agent/)
+[![CI](https://github.com/epsionic/epsionic/actions/workflows/ci.yml/badge.svg)](https://github.com/epsionic/epsionic/actions/workflows/ci.yml)
+[![PyPI version](https://img.shields.io/pypi/v/epsionic.svg)](https://pypi.org/project/epsionic/)
+[![Python versions](https://img.shields.io/pypi/pyversions/epsionic.svg)](https://pypi.org/project/epsionic/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
@@ -11,19 +11,19 @@ Production-grade autonomous LLM training agent — domain auto-selection, datase
 ## Quick Start
 
 ```bash
-pip install openclaw-colab-agent
+pip install epsionic
 
 # Interactive mode — agent asks what domain to train
-openclaw --interactive
+epsionic --interactive
 
 # Autonomous mode — detects environment, picks domain, runs
-openclaw --autonomous
+epsionic --autonomous
 
 # Launch web dashboard
-openclaw --dashboard
+epsionic --dashboard
 ```
 
-## Architecture (OpenClaw)
+## Architecture (Epslionic)
 
 ```
 Gateway (Orchestrator)
@@ -56,7 +56,7 @@ Gateway (Orchestrator)
 ## CLI Reference
 
 ```
-openclaw [OPTIONS]
+epsionic [OPTIONS]
 
 Modes:
   -i, --interactive     Interactive REPL
@@ -88,8 +88,8 @@ docker compose --profile dashboard up  # Dashboard only
 ## Development
 
 ```bash
-git clone https://github.com/openclaw/openclaw-colab-agent
-cd openclaw-colab-agent
+git clone https://github.com/epsionic/epsionic
+cd epsionic
 pip install -e ".[dev,dashboard]"
 pre-commit install
 
@@ -100,18 +100,18 @@ make typecheck       # MyPy
 
 ## Google Colab
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/openclaw/openclaw-colab-agent/blob/main/OpenClaw_Colab_Agent.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/epsionic/epsionic/blob/main/Epslionic_Colab_Agent.ipynb)
 
 Or paste in a single cell:
 ```python
-!pip install openclaw-colab-agent
-!openclaw --interactive
+!pip install epsionic
+!epsionic --interactive
 ```
 
 ## API Server
 
 ```bash
-openclaw --serve
+epsionic --serve
 curl http://localhost:8000/health
 curl http://localhost:8000/train/math -X POST
 curl http://localhost:8000/experiments

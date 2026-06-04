@@ -1,6 +1,6 @@
 # Architecture
 
-The OpenClaw architecture is composed of six core layers:
+The Epslionic architecture is composed of six core layers:
 
 ```
 Gateway (Orchestrator)

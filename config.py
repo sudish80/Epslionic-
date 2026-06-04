@@ -12,12 +12,12 @@ __test__ = False
 
 @dataclass
 class AgentConfig:
-    workspace_root: Path = Path("/content/openclaw_workspace")
-    memory_dir: Path = Path("/content/openclaw_workspace/memory")
-    skills_dir: Path = Path("/content/openclaw_workspace/skills")
-    logs_dir: Path = Path("/content/openclaw_workspace/logs")
-    models_dir: Path = Path("/content/openclaw_workspace/models")
-    datasets_dir: Path = Path("/content/openclaw_workspace/datasets")
+    workspace_root: Path = Path("/content/epsionic_workspace")
+    memory_dir: Path = Path("/content/epsionic_workspace/memory")
+    skills_dir: Path = Path("/content/epsionic_workspace/skills")
+    logs_dir: Path = Path("/content/epsionic_workspace/logs")
+    models_dir: Path = Path("/content/epsionic_workspace/models")
+    datasets_dir: Path = Path("/content/epsionic_workspace/datasets")
 
     huggingface_token: Optional[str] = None
     openai_api_key: Optional[str] = None

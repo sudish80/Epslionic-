@@ -10,7 +10,7 @@
 
 We take security seriously. If you discover a security issue, please **do not** open a public issue.
 
-Instead, email us at: **security@openclaw.ai**
+Instead, email us at: **security@epsionic.ai**
 
 You should receive a response within 48 hours. If not, follow up.
 

@@ -1,12 +1,12 @@
-# OpenClaw-Colab Agent
+# Epslionic-Colab Agent
 
 Production-grade autonomous LLM training agent with domain auto-selection, dataset discovery, fine-tuning, auto-fix, web dashboard, and REST API.
 
 ## Quick Start
 
 ```bash
-pip install openclaw-colab-agent
-openclaw --interactive
+pip install epsionic
+epsionic --interactive
 ```
 
 ## Key Features
