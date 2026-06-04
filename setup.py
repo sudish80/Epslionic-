@@ -8,6 +8,7 @@ setup(
         "epsionic.core": "core",
         "epsionic.tools": "tools",
         "epsionic.utils": "utils",
+        "epsionic.memory": "memory",
     },
     packages=["epsionic"] + [f"epsionic.{p}" for p in EXISTING],
     package_data={"": ["py.typed"]},

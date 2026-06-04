@@ -115,10 +115,8 @@ class TestGateway:
         gateway.check_budget()
 
         # Check agent state was written
-        state_path = gateway.memory._agent_dir / "budget_halt.json"
-        assert state_path.exists()
-        import json
-        data = json.loads(state_path.read_text())
+        data = gateway.memory.read_agent_state("budget_halt")
+        assert data is not None
         assert "cost" in data
         assert "limit" in data
         assert data["limit"] == 0.5

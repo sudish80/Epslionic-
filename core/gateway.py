@@ -49,7 +49,8 @@ class Gateway:
         self.state.started_at = datetime.now().isoformat()
         self._fsm = StateMachine("idle")
 
-        self.memory = MemoryStore(self.config.memory_dir)
+        self.memory = self._create_memory_store(config)
+        self._mem_store_type = getattr(self.memory, 'store_type', 'file')
         self.session_manager = SessionManager(max_concurrent=config.max_concurrent_sessions)
         self.brain = LLMBrain(
             provider=config.llm_provider, model=config.llm_model,
@@ -92,7 +93,19 @@ class Gateway:
         self._scheduler_running = False
         self._schedule = []  # list of {"domain": str, "interval_hours": float, "last_run": str, "enabled": bool}
 
-        logger.info(f"Gateway initialized — device: {self.device.name}, plugins: {len(self._plugin_manager.plugins)}")
+        logger.info(f"Gateway initialized — device: {self.device.name}, plugins: {len(self._plugin_manager.plugins)}, memory: {self._mem_store_type}")
+
+    def _create_memory_store(self, config):
+        """Auto-detect MemPalaceStore, fall back to MemoryStore."""
+        from ..memory import MemPalaceStore
+        palace_path = Path(str(config.workspace_root)) / "palace"
+        store = None
+        try:
+            store = MemPalaceStore(palace_path)
+            logger.info("Using MemPalaceStore at %s", palace_path)
+        except Exception as exc:
+            logger.info("MemPalaceStore unavailable (%s), using file-based MemoryStore", exc)
+        return store or MemoryStore(config.memory_dir)
 
     # ── Plugin integration ──────────────────────────────────────────────
 

@@ -58,8 +58,11 @@ dashboard = [
 colab = [
     "google-colab>=1.0",
 ]
+mempalace = [
+    "mempalace>=1.0",
+]
 all = [
-    "epsionic[dashboard,dev]",
+    "epsionic[dashboard,dev,mempalace]",
 ]
 
 [project.urls]

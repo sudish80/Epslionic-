@@ -23,7 +23,6 @@ data/
 models/
 datasets/
 logs/
-memory/
 skills/
 
 # IDE
