@@ -1,4 +1,4 @@
-FROM python:3.11-slim AS builder
+FROM python:3.14-slim AS builder
 
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
@@ -7,7 +7,7 @@ COPY pyproject.toml setup.py ./
 COPY epsionic/ epsionic/
 RUN pip install --no-cache-dir build && python -m build
 
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 LABEL org.opencontainers.image.source="https://github.com/epsionic/epsionic"
 LABEL org.opencontainers.image.description="Epslionic-Colab: Production LLM Training Agent"
