@@ -36,7 +36,36 @@ CREATE TABLE IF NOT EXISTS audit_log (
     details TEXT DEFAULT '{}',
     timestamp TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at TEXT NOT NULL,
+    description TEXT DEFAULT ''
+);
 """
+
+
+def _ws_migrate(conn):
+    try:
+        c = conn.execute("SELECT MAX(version) FROM schema_version")
+        version = c.fetchone()[0] or 0
+    except Exception:
+        version = 0
+    now = __import__('datetime').datetime.utcnow().isoformat()
+
+    if version < 1:
+        conn.execute("INSERT OR IGNORE INTO schema_version (version, applied_at, description) VALUES (1, ?, 'Initial schema')", (now,))
+        version = 1
+
+    if version < 2:
+        conn.executescript("""
+            ALTER TABLE tenants ADD COLUMN email TEXT DEFAULT '';
+            ALTER TABLE tenants ADD COLUMN max_parallel_jobs INTEGER DEFAULT 3;
+        """)
+        conn.execute("INSERT INTO schema_version (version, applied_at, description) VALUES (2, ?, 'Added email and max_parallel_jobs to tenants')", (now,))
+        version = 2
+
+    conn.commit()
 
 
 class WorkspaceManager:
@@ -49,6 +78,7 @@ class WorkspaceManager:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(_SCHEMA)
+        _ws_migrate(self._conn)
         self._conn.commit()
 
     def create_tenant(self, name: str, workspace_root: str | Path = None) -> dict:

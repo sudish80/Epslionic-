@@ -312,7 +312,7 @@ def _agent_chat(gw, prompt: str, max_tokens: int = 512, temperature: float = 0.7
 def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
     try:
         from fastapi import FastAPI, HTTPException
-        from fastapi.responses import JSONResponse, HTMLResponse
+        from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse
         import uvicorn
     except ImportError:
         logger.error("fastapi/uvicorn not installed. Install with: pip install fastapi uvicorn")
@@ -417,6 +417,53 @@ def cmd_serve(gw: Gateway, host: str = '0.0.0.0', port: int = 8000) -> int:
         if issues:
             return JSONResponse(status_code=503, content={"status": "not ready", "issues": issues})
         return {"status": "ready", "uptime": gw.state.started_at}
+
+    # ── Version endpoint ───────────────────────────────────────────────
+    @app.get("/version")
+    def version_info(auth: bool = Depends(_verify_key)):
+        return {
+            "version": __version__,
+            "api_version": "v1",
+            "schema_version": getattr(gw.memory, "_get_schema_version", lambda: 0)(),
+        }
+
+    # ── Prometheus metrics ─────────────────────────────────────────────
+    @app.get("/metrics")
+    def metrics(auth: bool = Depends(_verify_key)):
+        import psutil, platform
+        lines = [
+            "# HELP epsionic_build_info Build metadata",
+            "# TYPE epsionic_build_info gauge",
+            f'epsionic_build_info{{version="{__version__}",python="{platform.python_version()}"}} 1',
+            "# HELP epsionic_tools_total Number of registered tools",
+            "# TYPE epsionic_tools_total gauge",
+            f"epsionic_tools_total {len(gw._tool_registry)}",
+            "# HELP epsionic_experiments_total Total experiments created",
+            "# TYPE epsionic_experiments_total gauge",
+            f"epsionic_experiments_total {gw.state.sessions_created}",
+            "# HELP epsionic_errors_total Total errors encountered",
+            "# TYPE epsionic_errors_total gauge",
+            f"epsionic_errors_total {gw.state.errors_encountered}",
+            "# HELP epsionic_budget_halted Budget halt status",
+            "# TYPE epsionic_budget_halted gauge",
+            f"epsionic_budget_halted {1 if getattr(gw, '_budget_halt', False) else 0}",
+            "# HELP epsionic_uptime_seconds Agent uptime",
+            "# TYPE epsionic_uptime_seconds gauge",
+            f"epsionic_uptime_seconds {(datetime.now() - datetime.fromisoformat(gw.state.started_at)).total_seconds() if gw.state.started_at else 0}",
+        ]
+        try:
+            lines.append("# HELP python_gc_objects_collected_total Objects collected by GC")
+            lines.append("# TYPE python_gc_objects_collected_total counter")
+            lines.append(f"python_gc_objects_collected_total {len(__import__('gc').get_objects())}")
+            lines.append("# HELP process_cpu_seconds_total Total CPU seconds")
+            lines.append("# TYPE process_cpu_seconds_total counter")
+            lines.append(f"process_cpu_seconds_total {psutil.Process().cpu_times().user + psutil.Process().cpu_times().system:.2f}")
+            lines.append("# HELP process_memory_bytes Process memory in bytes")
+            lines.append("# TYPE process_memory_bytes gauge")
+            lines.append(f"process_memory_bytes {psutil.Process().memory_info().rss}")
+        except Exception:
+            pass
+        return PlainTextResponse("\n".join(lines) + "\n")
 
     # ── OpenAI-compatible API ─────────────────────────────────────────
     from pydantic import BaseModel

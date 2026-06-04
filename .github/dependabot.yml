@@ -7,15 +7,6 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - "dependencies"
-    commit-message:
-      prefix: "deps"
-      include: "scope"
-
-  - package-ecosystem: "docker"
-    directory: "/"
-    schedule:
-      interval: "monthly"
-
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

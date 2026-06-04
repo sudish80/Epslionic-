@@ -96,6 +96,8 @@ class Gateway:
         self._scheduler_thread = None
         self._scheduler_running = False
         self._schedule = []  # list of {"domain": str, "interval_hours": float, "last_run": str, "enabled": bool}
+        self._backup_thread = None
+        self._backup_running = False
 
         logger.info(f"Gateway initialized — device: {self.device.name}, plugins: {len(self._plugin_manager.plugins)}, memory: {self._mem_store_type}")
 
@@ -541,6 +543,7 @@ class Gateway:
 
     def shutdown(self):
         self._scheduler_running = False
+        self._backup_running = False
         self._budget_halt = False
         self._log_audit("shutdown", {"status": self.state.status, "domain": self.state.domain, "tools": self.state.tools_loaded})
         self._plugin_manager.run_hook("on_shutdown")
@@ -560,3 +563,20 @@ class Gateway:
         signal.signal(signal.SIGTERM, _handler)
         atexit.register(self.shutdown)
         logger.debug("Graceful shutdown handlers registered")
+
+    def _start_backup_loop(self):
+        """Start a background thread that creates DB backups every 30 minutes."""
+        if hasattr(self.memory, 'backup'):
+            self._backup_running = True
+            def _loop():
+                while self._backup_running:
+                    try:
+                        self.memory.backup()
+                    except Exception as exc:
+                        logger.warning("Backup failed: %s", exc)
+                    time.sleep(1800)  # 30 minutes
+            self._backup_thread = threading.Thread(target=_loop, daemon=True, name="mem-backup")
+            self._backup_thread.start()
+            logger.info("Backup loop started (interval=30m)")
+
+    def shutdown(self):

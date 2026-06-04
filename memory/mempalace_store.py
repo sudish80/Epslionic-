@@ -88,7 +88,56 @@ CREATE INDEX IF NOT EXISTS idx_triples_predicate ON triples(predicate);
 CREATE INDEX IF NOT EXISTS idx_triples_object ON triples(object);
 CREATE INDEX IF NOT EXISTS idx_diary_agent ON diary(agent_name);
 CREATE INDEX IF NOT EXISTS idx_diary_created ON diary(created_at);
+
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at TEXT NOT NULL,
+    description TEXT DEFAULT ''
+);
 """
+
+
+def _get_schema_version(conn) -> int:
+    try:
+        c = conn.execute("SELECT MAX(version) FROM schema_version")
+        row = c.fetchone()
+        return row[0] if row and row[0] else 0
+    except Exception:
+        return 0
+
+
+def _migrate(conn):
+    version = _get_schema_version(conn)
+    now = datetime.utcnow().isoformat()
+
+    if version < 1:
+        conn.execute("INSERT OR IGNORE INTO schema_version (version, applied_at, description) VALUES (1, ?, 'Initial schema')", (now,))
+        version = 1
+
+    if version < 2:
+        conn.executescript("""
+            ALTER TABLE rooms ADD COLUMN tags TEXT DEFAULT '';
+            ALTER TABLE wings ADD COLUMN metadata TEXT DEFAULT '{}';
+        """)
+        conn.execute("INSERT INTO schema_version (version, applied_at, description) VALUES (2, ?, 'Added tags to rooms, metadata to wings')", (now,))
+        version = 2
+
+    if version < 3:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS metrics_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_id TEXT NOT NULL REFERENCES rooms(id),
+                metric_name TEXT NOT NULL,
+                metric_value REAL,
+                step INTEGER DEFAULT 0,
+                timestamp TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_metrics_room ON metrics_history(room_id);
+        """)
+        conn.execute("INSERT INTO schema_version (version, applied_at, description) VALUES (3, ?, 'Added metrics_history table for training curves')", (now,))
+        version = 3
+
+    conn.commit()
 
 
 class MemPalaceStore:
@@ -113,6 +162,7 @@ class MemPalaceStore:
 
     def _init_schema(self):
         self._conn.executescript(SCHEMA_SQL)
+        _migrate(self._conn)
         self._conn.commit()
 
     def close(self):
