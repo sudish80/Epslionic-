@@ -1,0 +1,43 @@
+site_name: OpenClaw-Colab Agent
+site_description: Production-grade autonomous LLM training agent
+site_url: https://openclaw.github.io/openclaw-colab-agent
+repo_url: https://github.com/openclaw/openclaw-colab-agent
+edit_uri: blob/main/docs/
+
+theme:
+  name: material
+  palette:
+    primary: indigo
+    accent: blue
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.top
+    - search.suggest
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Architecture: architecture.md
+  - CLI Reference: cli.md
+  - API Reference: api.md
+  - Plugins: plugins.md
+  - Contributing: contributing.md
+  - Changelog: changelog.md
+
+markdown_extensions:
+  - admonition
+  - codehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          rendering:
+            show_source: true

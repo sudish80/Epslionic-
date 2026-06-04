@@ -1,0 +1,48 @@
+version: "3.9"
+
+services:
+  agent:
+    build: .
+    image: openclaw-agent:latest
+    container_name: openclaw-agent
+    restart: unless-stopped
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - HF_TOKEN=${HF_TOKEN:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./data:/workspace/data
+      - ./config:/workspace/config:ro
+      - ./logs:/workspace/logs
+    ports:
+      - "7860:7860"   # Gradio dashboard
+      - "8000:8000"   # FastAPI server
+    command: ["--autonomous", "--continuous"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import openclaw_colab_agent; print('ok')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  dashboard:
+    build: .
+    container_name: openclaw-dashboard
+    restart: unless-stopped
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - HF_TOKEN=${HF_TOKEN:-}
+    volumes:
+      - ./data:/workspace/data
+      - ./config:/workspace/config:ro
+    ports:
+      - "7860:7860"
+    command: ["--dashboard", "--skip-domain"]
+    profiles: ["dashboard"]

@@ -1,0 +1,13 @@
+include README.md
+include LICENSE
+include .env.example
+include pyproject.toml
+include openclaw_colab_agent/py.typed
+recursive-include openclaw_colab_agent *.py
+recursive-include tests *.py
+recursive-include docker *.dockerfile
+prune **/__pycache__
+prune **/*.pyc
+prune **/.pytest_cache
+prune **/.mypy_cache
+prune **/.ruff_cache
